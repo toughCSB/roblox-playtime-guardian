@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { Settings } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/types'
+import robloxCharacters from '../assets/roblox-characters.jpg'
 
 interface Props {
   onOpenSettings: () => void
@@ -25,17 +26,11 @@ function getTodayAllowedMinutes(settings: Settings): number {
   return isWeekend(new Date()) ? settings.weekendLimit : settings.weekdayLimit
 }
 
-function getIsStartableNow(settings: Settings): boolean {
-  const currentHour = new Date().getHours()
-  return currentHour >= settings.allowedStartHour && currentHour < settings.allowedEndHour
-}
-
-// 남은 초 기반으로 LED 색상 결정 (경고 이벤트와 무관하게 항상 정확)
 function ledColors(remainingSeconds: number): { color: string; glow: string } {
-  if (remainingSeconds <= 60)  return { color: '#ff1744', glow: 'rgba(255,23,68,0.80)'   }
-  if (remainingSeconds <= 180) return { color: '#ff6600', glow: 'rgba(255,102,0,0.95)'   }
-  if (remainingSeconds <= 300) return { color: '#ffea00', glow: 'rgba(255,234,0,0.70)'   }
-  return                              { color: '#00e676', glow: 'rgba(0,230,118,0.65)'   }
+  if (remainingSeconds <= 60)  return { color: '#ff1744', glow: 'rgba(255,23,68,0.80)' }
+  if (remainingSeconds <= 180) return { color: '#ff6600', glow: 'rgba(255,102,0,0.95)' }
+  if (remainingSeconds <= 300) return { color: '#ffea00', glow: 'rgba(255,234,0,0.70)' }
+  return                              { color: '#00e676', glow: 'rgba(0,230,118,0.65)' }
 }
 
 export default function Timer({ onOpenSettings }: Props) {
@@ -43,51 +38,86 @@ export default function Timer({ onOpenSettings }: Props) {
   const [remainingSeconds, setRemainingSeconds] = useState(0)
   const [isRunning, setIsRunning] = useState(false)
   const [sessionStartTime, setSessionStartTime] = useState('')
-  const [warningMinutesLeft, setWarningMinutesLeft] = useState<number | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [overlayMode, setOverlayMode] = useState<'corner' | 'center-popup' | 'center-countdown' | 'shutdown'>('corner')
+  const [autoStartBanner, setAutoStartBanner] = useState(false)
 
+  useEffect(() => {
+    window.api?.readSettings().then(setSettings)
+  }, [])
+
+  const handleStartTimer = async (limitMinutes?: number) => {
+    const api = window.api
+    if (!api) return
+    const s = settings ?? DEFAULT_SETTINGS
+    const limit = limitMinutes ?? getTodayAllowedMinutes(s)
+    const now = new Date()
+    setSessionStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
+    setOverlayMode('corner')
+    await api.startTimer(limit)
+    setIsRunning(true)
+    setRemainingSeconds(limit * 60)
+  }
+
+  // Roblox 자동 감지 → 타이머 자동 시작
   useEffect(() => {
     const api = window.api
     if (!api) return
-    api.readSettings().then(setSettings)
-  }, [])
+    const removeDetected = api.onRobloxDetected(() => {
+      if (isRunning) return
+      const s = settings ?? DEFAULT_SETTINGS
+      const now = new Date()
+      const hour = now.getHours()
+      if (hour >= s.allowedStartHour && hour < s.allowedEndHour) {
+        setAutoStartBanner(true)
+        setTimeout(() => setAutoStartBanner(false), 3000)
+        handleStartTimer()
+      }
+    })
+    const removeClosed = api.onRobloxClosed(() => {
+      if (!isRunning) return
+      api.stopTimer()
+      setIsRunning(false)
+      setOverlayMode('corner')
+      setRemainingSeconds(0)
+      setSessionStartTime('')
+    })
+    return () => { removeDetected(); removeClosed() }
+  }, [isRunning, settings])
 
-  const handleStartTimer = async () => {
-    const api = window.api
-    if (!settings || !api) return
-    const limitMinutes = getTodayAllowedMinutes(settings)
-    const now = new Date()
-    setSessionStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
-    setOverlayMode('corner')
-    await api.startTimer(limitMinutes)
-    setIsRunning(true)
-    setRemainingSeconds(limitMinutes * 60)
-  }
-
-  // 빠른 테스트: 2분 타이머 (30초 경고 → 10초 카운트다운 → 셧다운 확인용)
-  const handleTestMode = async () => {
+  // 재부팅 후 타이머 복원
+  useEffect(() => {
     const api = window.api
     if (!api) return
-    const now = new Date()
-    setSessionStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
-    setOverlayMode('corner')
-    await api.startTimer(2)
-    setIsRunning(true)
-    setRemainingSeconds(2 * 60)
-  }
+    return api.onTimerResumed(({ remainingSeconds: rs }) => {
+      setIsRunning(true)
+      setRemainingSeconds(rs)
+      setOverlayMode('corner')
+    })
+  }, [])
+
+  // 관리자 강제 중지
+  useEffect(() => {
+    const api = window.api
+    if (!api) return
+    return api.onTimerAdminStopped(() => {
+      setIsRunning(false)
+      setOverlayMode('corner')
+      setRemainingSeconds(0)
+      setSessionStartTime('')
+    })
+  }, [])
 
   useEffect(() => {
     const api = window.api
     if (!isRunning || !api) return
-    return api.onTimerTick(({ remainingSeconds }) => setRemainingSeconds(remainingSeconds))
+    return api.onTimerTick(({ remainingSeconds: rs }) => setRemainingSeconds(rs))
   }, [isRunning])
 
   useEffect(() => {
     const api = window.api
     if (!isRunning || !api) return
     return api.onTimerWarning(({ minutesLeft }) => {
-      setWarningMinutesLeft(minutesLeft)
       const msg = minutesLeft === 0 ? '⏰ 30초 남았어!' : `⚠️ ${minutesLeft}분 남았어!`
       setWarningMessage(msg)
     })
@@ -99,7 +129,7 @@ export default function Timer({ onOpenSettings }: Props) {
     return api.onTimerExpired(async () => {
       setIsRunning(false)
       setOverlayMode('corner')
-      setWarningMinutesLeft(null)
+      setWarningMessage(null)
       if (settings && sessionStartTime) {
         const now = new Date()
         const endTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
@@ -119,16 +149,14 @@ export default function Timer({ onOpenSettings }: Props) {
     })
   }, [isRunning, settings, sessionStartTime])
 
-  // timer:mode 이벤트 수신
   useEffect(() => {
     const api = window.api
     if (!isRunning || !api) return
     return api.onTimerMode(({ mode }) => {
-      setOverlayMode(mode as 'corner' | 'center-popup' | 'center-countdown' | 'shutdown')
+      setOverlayMode(mode as typeof overlayMode)
     })
   }, [isRunning])
 
-  // 경고 메시지 4초 후 자동 소멸
   useEffect(() => {
     if (!warningMessage) return
     const t = setTimeout(() => setWarningMessage(null), 4000)
@@ -138,150 +166,98 @@ export default function Timer({ onOpenSettings }: Props) {
   const displaySettings = settings ?? DEFAULT_SETTINGS
   const todayLimitMinutes = getTodayAllowedMinutes(displaySettings)
   const dayType = isWeekend(new Date()) ? '주말' : '평일'
+  const now = new Date()
+  const hour = now.getHours()
+  const isStartable = hour >= displaySettings.allowedStartHour && hour < displaySettings.allowedEndHour
 
-  // ── 오버레이 모드 ────────────────────────────────────────────────────
+  // ── 타이머 실행 중: 오버레이 모드들 ─────────────────────────────────────
   if (isRunning) {
     const { color, glow } = ledColors(remainingSeconds)
 
-    // 셧다운 화면
     if (overlayMode === 'shutdown') {
       return (
-        <div
-          className="h-screen w-screen flex items-center justify-center select-none"
-          style={{ background: 'rgba(0,0,0,0.88)' }}
-        >
-          <span
-            style={{
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: '20px',
-              fontWeight: 700,
-              color: '#ff1744',
-              textShadow: '0 0 16px rgba(255,23,68,0.9)',
-              letterSpacing: '1px',
-            }}
-          >
+        <div className="h-screen w-screen flex items-center justify-center select-none"
+          style={{ background: 'rgba(0,0,0,0.88)' }}>
+          <span style={{
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: '20px', fontWeight: 700,
+            color: '#ff1744',
+            textShadow: '0 0 16px rgba(255,23,68,0.9)',
+            letterSpacing: '1px',
+          }}>
             🚫 게임 셧다운...
           </span>
         </div>
       )
     }
 
-    // 10초 이하 중앙 카운트다운
     if (overlayMode === 'center-countdown') {
       return (
-        <div
-          className="h-screen w-screen flex items-center justify-center select-none"
-          style={{ background: 'rgba(0,0,0,0.80)' }}
-        >
-          <span
-            style={{
-              fontFamily: "'DSEG7', 'Courier New', monospace",
-              fontSize: '64px',
-              fontWeight: 'bold',
-              letterSpacing: '4px',
-              color: '#ff1744',
-              textShadow: '0 0 24px rgba(255,23,68,0.9), 0 0 10px rgba(255,23,68,0.9)',
-              lineHeight: 1,
-              userSelect: 'none',
-            }}
-          >
+        <div className="h-screen w-screen flex items-center justify-center select-none"
+          style={{ background: 'rgba(0,0,0,0.80)' }}>
+          <span style={{
+            fontFamily: "'DSEG7', 'Courier New', monospace",
+            fontSize: '64px', fontWeight: 'bold', letterSpacing: '4px',
+            color: '#ff1744',
+            textShadow: '0 0 24px rgba(255,23,68,0.9), 0 0 10px rgba(255,23,68,0.9)',
+            lineHeight: 1, userSelect: 'none',
+          }}>
             {formatTime(remainingSeconds)}
           </span>
         </div>
       )
     }
 
-    // 중앙 경고 팝업 (4초간)
     if (overlayMode === 'center-popup') {
       return (
-        <div
-          className="h-screen w-screen flex flex-col items-center justify-center gap-3 select-none"
-          style={{ background: 'rgba(0,0,0,0.80)' }}
-        >
+        <div className="h-screen w-screen flex flex-col items-center justify-center gap-3 select-none"
+          style={{ background: 'rgba(0,0,0,0.80)' }}>
           {warningMessage && (
-            <span
-              style={{
-                fontFamily: 'system-ui, sans-serif',
-                fontSize: '17px',
-                fontWeight: 700,
-                color: '#ff1744',
-                textShadow: '0 0 10px rgba(255,23,68,0.8)',
-                letterSpacing: '0.5px',
-              }}
-            >
-              {warningMessage}
-            </span>
+            <span style={{
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: '17px', fontWeight: 700,
+              color: '#ff1744',
+              textShadow: '0 0 10px rgba(255,23,68,0.8)',
+              letterSpacing: '0.5px',
+            }}>{warningMessage}</span>
           )}
-          <span
-            style={{
-              fontFamily: "'DSEG7', 'Courier New', monospace",
-              fontSize: '48px',
-              fontWeight: 'bold',
-              letterSpacing: '4px',
-              color,
-              textShadow: `0 0 20px ${glow}, 0 0 8px ${glow}`,
-              lineHeight: 1,
-              userSelect: 'none',
-            }}
-          >
+          <span style={{
+            fontFamily: "'DSEG7', 'Courier New', monospace",
+            fontSize: '48px', fontWeight: 'bold', letterSpacing: '4px',
+            color, textShadow: `0 0 20px ${glow}, 0 0 8px ${glow}`,
+            lineHeight: 1, userSelect: 'none',
+          }}>
             {formatTime(remainingSeconds)}
           </span>
         </div>
       )
     }
 
-    // 기본: 코너 타이머
+    // 코너 타이머
     return (
-      <div
-        className="app-drag h-screen w-screen flex flex-col items-end justify-end select-none"
-        style={{ cursor: 'move' }}
-      >
+      <div className="app-drag h-screen w-screen flex flex-col items-end justify-end select-none"
+        style={{ cursor: 'move' }}>
         {warningMessage && (
-          <div
-            style={{
-              background: 'rgba(0,0,0,0.55)',
-              padding: '3px 8px',
-              marginBottom: '3px',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <span
-              style={{
-                fontFamily: 'system-ui, sans-serif',
-                fontSize: '12px',
-                fontWeight: 700,
-                color: '#ff1744',
-                textShadow: '0 0 8px rgba(255,23,68,0.7)',
-                letterSpacing: '0.5px',
-                userSelect: 'none',
-              }}
-            >
-              {warningMessage}
-            </span>
+          <div style={{ background: 'rgba(0,0,0,0.55)', padding: '3px 8px', marginBottom: '3px' }}>
+            <span style={{
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: '12px', fontWeight: 700,
+              color: '#ff1744',
+              textShadow: '0 0 8px rgba(255,23,68,0.7)',
+              letterSpacing: '0.5px', userSelect: 'none',
+            }}>{warningMessage}</span>
           </div>
         )}
-        <div
-          style={{
-            background: 'rgba(0,0,0,0.18)',
-            padding: '0 8px',
-            height: '34px',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "'DSEG7', 'Courier New', monospace",
-              fontSize: '22px',
-              fontWeight: 'bold',
-              letterSpacing: '2px',
-              color,
-              textShadow: `0 0 12px ${glow}, 0 0 5px ${glow}`,
-              userSelect: 'none',
-              lineHeight: 1,
-            }}
-          >
+        <div style={{
+          background: 'rgba(0,0,0,0.18)', padding: '0 8px',
+          height: '34px', display: 'flex', alignItems: 'center',
+        }}>
+          <span style={{
+            fontFamily: "'DSEG7', 'Courier New', monospace",
+            fontSize: '22px', fontWeight: 'bold', letterSpacing: '2px',
+            color, textShadow: `0 0 12px ${glow}, 0 0 5px ${glow}`,
+            userSelect: 'none', lineHeight: 1,
+          }}>
             {formatTime(remainingSeconds)}
           </span>
         </div>
@@ -289,68 +265,180 @@ export default function Timer({ onOpenSettings }: Props) {
     )
   }
 
-  // ── 대기 모드: 설정/시작 화면 ────────────────────────────────────────
-  const isStartable = getIsStartableNow(displaySettings)
-
+  // ── 대기 모드: 메인 화면 ─────────────────────────────────────────────────
   return (
-    <div className="flex flex-col items-center justify-between h-screen px-6 py-8 bg-gradient-to-b from-blue-50 to-indigo-100 rounded-2xl shadow-2xl">
-      {/* 타이틀 — 드래그 핸들 역할 */}
-      <div className="app-drag text-center pt-4 w-full">
-        <h1 className="text-2xl font-bold text-indigo-900 leading-tight">🎮 나의 약속</h1>
-        <p className="text-sm text-indigo-400 mt-1">My Pact for My Future</p>
+    <div className="app-drag flex flex-col h-screen w-screen overflow-hidden select-none"
+      style={{
+        background: 'linear-gradient(180deg, #4FC3F7 0%, #0288D1 100%)',
+        borderRadius: '12px',
+        position: 'relative',
+      }}>
+
+      {/* 자동 감지 배너 */}
+      {autoStartBanner && (
+        <div className="no-drag absolute top-0 left-0 right-0 z-10 flex items-center justify-center py-2"
+          style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <span style={{ color: '#fff', fontSize: '13px', fontWeight: 700 }}>
+            🎮 로블록스 감지! 타이머 자동 시작...
+          </span>
+        </div>
+      )}
+
+      {/* 상단: 로블록스 헤더 */}
+      <div className="app-drag flex items-center justify-center gap-2 pt-7 pb-2">
+        {/* R 로고 */}
+        <div style={{
+          width: 32, height: 32, borderRadius: '50%',
+          background: '#E8001C',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 2px 8px rgba(232,0,28,0.5)',
+          flexShrink: 0,
+        }}>
+          <span style={{ color: '#fff', fontWeight: 900, fontSize: '18px', lineHeight: 1 }}>R</span>
+        </div>
+        <span style={{
+          fontFamily: 'system-ui, Arial Black, sans-serif',
+          fontWeight: 900, fontSize: '22px',
+          color: '#fff',
+          letterSpacing: '2px',
+          textShadow: '0 1px 4px rgba(0,0,0,0.3)',
+        }}>ROBLOX</span>
       </div>
 
-      {/* 타이머 + 버튼 */}
-      <div className="flex flex-col items-center gap-6 flex-1 justify-center">
-        <div className="flex gap-2">
-          <span className="bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1 rounded-full">{dayType}</span>
-          <span className="bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1 rounded-full">하루 {todayLimitMinutes}분</span>
-        </div>
+      {/* 타이틀 */}
+      <div className="app-drag text-center pt-1 pb-3">
+        <h1 style={{
+          fontFamily: "'Black Han Sans', sans-serif",
+          fontSize: '40px',
+          color: '#1a1a2e',
+          lineHeight: 1.1,
+          textShadow: '0 2px 4px rgba(0,0,0,0.15)',
+        }}>
+          나와의 서약
+        </h1>
+      </div>
 
-        <div className="bg-white rounded-3xl px-10 py-7 shadow-xl border-2 border-indigo-100">
-          <p className="text-xs text-center text-gray-400 mb-2 font-medium tracking-widest uppercase">오늘 허용 시간</p>
-          <div className="text-6xl font-mono font-black text-indigo-700 tracking-tight text-center">
+      {/* 오늘 제한 정보 */}
+      <div className="no-drag flex items-center justify-center gap-2 mb-3">
+        <span style={{
+          background: 'rgba(255,255,255,0.25)',
+          color: '#fff', fontSize: '13px', fontWeight: 700,
+          padding: '3px 12px', borderRadius: '20px',
+        }}>{dayType}</span>
+        <span style={{
+          background: 'rgba(255,255,255,0.25)',
+          color: '#fff', fontSize: '13px', fontWeight: 700,
+          padding: '3px 12px', borderRadius: '20px',
+        }}>하루 {todayLimitMinutes}분</span>
+      </div>
+
+      {/* 허용 시간 표시 카드 */}
+      <div className="no-drag flex justify-center mb-4">
+        <div style={{
+          background: 'rgba(255,255,255,0.22)',
+          backdropFilter: 'blur(8px)',
+          borderRadius: '16px',
+          padding: '14px 32px',
+          border: '1px solid rgba(255,255,255,0.4)',
+          textAlign: 'center',
+        }}>
+          <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px', marginBottom: '4px', letterSpacing: '1px', fontWeight: 600 }}>
+            오늘 허용 시간
+          </p>
+          <div style={{
+            fontFamily: "'DSEG7', 'Courier New', monospace",
+            fontSize: '42px', fontWeight: 'bold',
+            color: '#fff',
+            textShadow: '0 0 20px rgba(255,255,255,0.6)',
+            letterSpacing: '3px',
+            lineHeight: 1,
+          }}>
             {formatTime(todayLimitMinutes * 60)}
           </div>
         </div>
+      </div>
 
+      {/* 시작 버튼 영역 */}
+      <div className="no-drag flex flex-col items-center gap-3 mb-4">
         {!isStartable ? (
-          <div className="text-center">
-            <button disabled className="no-drag bg-gray-200 text-gray-400 font-bold rounded-2xl py-4 px-10 text-lg cursor-not-allowed">
+          <>
+            <button disabled style={{
+              background: 'rgba(255,255,255,0.2)',
+              color: 'rgba(255,255,255,0.5)',
+              border: 'none', borderRadius: '14px',
+              padding: '14px 48px', fontSize: '18px', fontWeight: 900,
+              cursor: 'not-allowed', letterSpacing: '1px',
+            }}>
               ▶ 게임 시작
             </button>
-            <p className="text-orange-500 text-sm mt-3 font-medium">
-              오후 {displaySettings.allowedStartHour}시 이후에 시작할 수 있어요
+            <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: 600 }}>
+              {hour < displaySettings.allowedStartHour
+                ? `오후 ${displaySettings.allowedStartHour}시 이후에 시작할 수 있어`
+                : `오늘 게임 시간이 끝났어 (${displaySettings.allowedEndHour}시 이후)`}
             </p>
-          </div>
+          </>
         ) : (
           <button
-            onClick={handleStartTimer}
-            disabled={!settings}
-            className="no-drag bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black rounded-2xl py-4 px-10 text-xl transition-all shadow-lg disabled:opacity-50"
+            className="no-drag btn-start"
+            onClick={() => handleStartTimer()}
+            style={{
+              border: 'none', borderRadius: '14px',
+              padding: '14px 48px', fontSize: '18px', fontWeight: 900,
+              color: '#fff', letterSpacing: '1px',
+              cursor: 'pointer',
+            }}
           >
             ▶ 게임 시작
           </button>
         )}
+
+        <button
+          className="no-drag"
+          onClick={() => handleStartTimer(2)}
+          style={{
+            background: 'transparent',
+            border: '1px solid rgba(255,255,255,0.4)',
+            borderRadius: '10px', padding: '6px 18px',
+            color: 'rgba(255,255,255,0.7)', fontSize: '12px',
+            cursor: 'pointer',
+          }}
+        >
+          🧪 테스트 (2분)
+        </button>
       </div>
 
-      {/* 하단 */}
-      <div className="text-center pb-2">
-        <p className="text-gray-500 text-xs mb-2">{displaySettings.allowedStartHour}시 ~ {displaySettings.allowedEndHour}시</p>
-        <div className="flex gap-4 justify-center">
-          <button
-            onClick={onOpenSettings}
-            className="no-drag text-indigo-500 hover:text-indigo-700 font-medium text-sm transition-colors"
-          >
-            ⚙️ 설정 변경
-          </button>
-          <button
-            onClick={handleTestMode}
-            className="no-drag text-orange-400 hover:text-orange-600 font-medium text-sm transition-colors"
-          >
-            🧪 테스트 (2분)
-          </button>
-        </div>
+      {/* 하단: 허용 시간대 + 설정 */}
+      <div className="no-drag flex flex-col items-center gap-1 mb-4">
+        <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: '12px' }}>
+          {displaySettings.allowedStartHour}시 ~ {displaySettings.allowedEndHour}시
+        </p>
+        <button
+          onClick={onOpenSettings}
+          style={{
+            background: 'transparent', border: 'none',
+            color: 'rgba(255,255,255,0.8)', fontSize: '13px',
+            cursor: 'pointer', fontWeight: 600,
+          }}
+        >
+          ⚙️ 설정 변경
+        </button>
+      </div>
+
+      {/* 로블록스 캐릭터 이미지 */}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0,
+        height: '164px', overflow: 'hidden',
+        pointerEvents: 'none',
+      }}>
+        <img
+          src={robloxCharacters}
+          alt=""
+          style={{
+            width: '100%', height: '100%',
+            objectFit: 'cover', objectPosition: 'top',
+            opacity: 0.9,
+          }}
+        />
       </div>
     </div>
   )

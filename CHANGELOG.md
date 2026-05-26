@@ -1,0 +1,100 @@
+# Changelog
+
+모든 주요 변경 사항을 이 파일에 기록합니다.  
+형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)을 따르며, 버전은 [Semantic Versioning](https://semver.org/lang/ko/)을 따릅니다.
+
+---
+
+## [0.3.0] — 2026-05-27
+
+### 추가
+
+#### 트레이 3클릭 → 관리자 PIN 패널
+- **의도**: 아이가 앱을 임의로 조작할 수 없도록 모든 관리자 기능을 비밀번호로 잠금. 부모만 트레이 아이콘을 1.5초 안에 3번 클릭하면 PIN 입력 창이 열림
+- 트레이 아이콘 3회 클릭(1.5초 이내)으로 관리자 창 오픈
+- 400ms 단일/더블 클릭은 기존대로 메인 창 표시
+- 잘못된 PIN 5회 입력 시 30초 잠금(카운트다운 표시)
+- 초기 비밀번호: `0000`
+
+#### 관리자 패널 (`AdminPanel.tsx`)
+- **의도**: 부모가 예외 상황(학원 빠진 날, 방학 등)에 타이머를 유연하게 조정할 수 있는 공간 제공
+- 4자리 숫자 PIN 패드 UI (점 4개 표시)
+- **타이머 조정**: 실행 중인 타이머에 +15분 / +30분 / +60분 추가
+- **타이머 중지**: 관리자 권한으로 타이머 즉시 중지 → 메인 화면 복귀
+- **재부팅 후 타이머 유지 토글**: 컴퓨터를 강제 종료하거나 재부팅해도 남은 타이머가 이어지도록 설정
+- **비밀번호 변경**: 현재 비밀번호 확인 후 새 비밀번호로 변경 (SHA-256 해시 저장)
+
+#### 재부팅 후 타이머 복원
+- **의도**: 아이가 타이머를 피하기 위해 컴퓨터를 강제 재시작하는 상황 방지
+- 타이머 시작 시 `~/.mypact/timer-state.json`에 시작 시각·제한 시간·날짜 저장
+- 앱 재시작 시 당일 유효한 타이머 상태가 있으면 남은 시간부터 자동 재개
+- 날짜가 다르면(자정 이후) 자동 파기
+- 관리자 설정에서 이 기능을 ON/OFF 가능
+
+#### Roblox 자동 감지 + 타이머 자동 시작
+- **의도**: 아이가 타이머 앱을 직접 실행하지 않아도(또는 숨기더라도) 로블록스를 켜는 순간 자동으로 타이머가 작동하게 함
+- 3초마다 `tasklist`로 `RobloxPlayer(Beta).exe` 실행 여부 폴링
+- 로블록스 감지 → 허용 시간대 내에 있으면 타이머 자동 시작 + 배너 표시
+- 로블록스 종료 → 타이머 자동 중지 및 대기 화면으로 복귀
+
+#### 시스템 트레이 상시 유지
+- **의도**: 아이가 작업 표시줄에서 앱을 찾아 종료하는 경로 차단
+- `skipTaskbar: true` — 작업 표시줄에 아이콘 없음
+- 창 닫기(X버튼 / Alt+F4) → 앱 종료 대신 트레이로 숨김 (`e.preventDefault()` + `win.hide()`)
+- 트레이 메뉴에 종료 버튼 없음 — 트레이에서 앱을 절대 닫을 수 없음
+- 트레이 단일 클릭 → 메인 창 표시
+
+### 변경
+
+#### `shared/types.ts`
+- `Settings`에 `adminPasswordHash: string`, `resumeTimerOnRestart: boolean` 필드 추가
+- `TimerState` 인터페이스 신규 추가 (재부팅 복원용)
+- `DEFAULT_SETTINGS`에 기본 비밀번호 해시(SHA-256 of `'0000'`) 및 `resumeTimerOnRestart: true` 포함
+
+#### `main/fileStore.ts`
+- `readSettings()`: 기존 저장 파일에 없는 신규 필드를 `DEFAULT_SETTINGS`로 병합 (구버전 호환)
+- `readTimerState()`, `writeTimerState()`, `clearTimerState()` 추가
+
+#### `main/ipc.ts`
+- `admin:verify-password`, `admin:change-password`, `admin:set-resume-option` IPC 핸들러 추가
+
+#### `main/main.ts` — 전면 재작성
+- 윈도우 전환 시 `setOpacity(0 → 1)` 적용 → 깜빡임(flicker) 완전 제거
+- `startTimer()`: 재개 시 남은 시간(`resumeRemainingMs`) 파라미터로 정확한 시간 복원
+- `restoreWindow()`: 항상 `skipTaskbar: true` 유지
+- `timer:get-status`, `timer:add-time`, `timer:admin-stop`, `admin:close-window`, `admin:get-resume-option` IPC 핸들러 추가
+- Windows 패키지 빌드 시 자동 시작(`setLoginItemSettings`) 적용
+
+#### UI 디자인 — Roblox 테마 전면 적용
+- **의도**: 아이가 거부감 없이 앱을 자연스럽게 받아들이도록 로블록스 브랜딩과 일치시킴
+- 배경: 하늘색 그라데이션 (`#4FC3F7 → #0288D1`)
+- 타이틀: `Black Han Sans` 폰트, 40px "나와의 서약"
+- 시작 버튼: 로블록스 레드 그라데이션 (`#FF2233 → #AA0012`)
+- 하단: `roblox-characters.jpg` 캐릭터 이미지
+- 설정 화면도 동일 테마 적용
+
+#### `preload/index.ts` / `env.d.ts`
+- 신규 API 10개 추가: `timerGetStatus`, `timerAddTime`, `timerAdminStop`, `adminVerifyPassword`, `adminChangePassword`, `adminCloseWindow`, `adminGetResumeOption`, `adminSetResumeOption`, `onTimerResumed`, `onTimerAdminStopped`, `onRobloxDetected`, `onRobloxClosed`
+
+---
+
+## [0.2.0] — 2025 초기
+
+### 추가
+- Roblox 강제 종료 (`taskkill`) 구현
+- 시스템 트레이 아이콘 (스톱워치 디자인, PNG 프로그래매틱 생성)
+- Windows NSIS 인스톨러 패키징 (`electron-builder`)
+- 타이머 깜빡임 버그 수정 (`setOpacity` 전환)
+
+---
+
+## [0.1.0] — 2025 초기
+
+### 추가 (최초 구현)
+- Electron + React + TypeScript + Tailwind CSS 프로젝트 초기 설정
+- FPS 오버레이 스타일 코너 타이머 (우측 상단, DSEG7 폰트)
+- 단계별 경고 팝업 (5분·3분·30초·10초 카운트다운)
+- 타이머 만료 → 로블록스 강제 종료 + 메인 화면 복귀
+- 설정 화면: 평일/주말 허용 시간, 게임 가능 시간대
+- 게임 세션 기록 (JSON 로컬 저장)
+- `~/.mypact/` 디렉터리에 설정·세션 데이터 저장

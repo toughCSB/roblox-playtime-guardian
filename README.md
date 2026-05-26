@@ -1,6 +1,8 @@
-# 🎮 Roblox Playtime Guardian
+# 🎮 Pact — 나와의 서약
 
 > **자녀의 로블록스 게임 시간을 부모가 설정하고, 자녀 스스로 서약을 지키도록 돕는 Electron 데스크탑 타이머 앱**
+
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
 ---
 
@@ -22,9 +24,11 @@ MS Family Safety 같은 기존 자녀 보호 앱은 오류가 잦고, 자녀와�
 이 앱은 그 문제를 **시스템으로 해결**합니다.
 
 - ✅ 오류 없이 작동하는 커스텀 타이머
-- ✅ 자녀가 멋대로 끌 수 없는 구조 (정지 버튼 없음)
+- ✅ 자녀가 멋대로 끌 수 없는 구조 (종료 버튼 없음, 트레이 잠금)
+- ✅ 로블록스 실행 시 타이머 자동 시작 — 아이가 앱을 켜지 않아도 됨
 - ✅ 시간이 되면 로블록스를 자동 강제 종료
-- ✅ 말 대신 앱이 규칙을 집행
+- ✅ 재부팅으로 타이머 회피 불가 — 재시작 후 남은 시간 자동 복원
+- ✅ 부모만 아는 PIN으로 타이머 조정/중지/설정 변경
 
 ---
 
@@ -50,16 +54,50 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 | 3분 전 | 중앙 이동 → `⚠️ 3분 남았어!` → 복귀 |
 | 30초 전 | 중앙 이동 → `⏰ 30초 남았어!` → 복귀 |
 | 10초 ~ 0초 | 중앙에서 카운트다운 유지 |
-| 0초 | `게임 셧다운...` → 로블록스 강제 종료 |
+| 0초 | `🚫 게임 셧다운...` → 로블록스 강제 종료 |
 
-### ⚙️ 부모 설정 화면
-- 하루 허용 시간 (요일별 다른 시간 설정 가능)
-- 게임 시작 가능 시간대 지정 (예: 오후 4시 이후)
-- 설정 로컬 JSON 파일 저장
+### 🎮 로블록스 자동 감지 + 타이머 자동 시작
+아이가 타이머 앱을 직접 실행하지 않아도, 로블록스를 켜는 순간 자동으로 타이머가 시작됩니다.
 
-### 📊 게임 세션 기록
-- 매 플레이 시작/종료 시각 및 시간 자동 기록
-- 로컬 JSON 파일로 저장 (Phase 2 웹 대시보드 연동 예정)
+- 3초마다 `tasklist`로 `RobloxPlayer.exe` 실행 여부 감지
+- 허용 시간대 내에서 감지되면 자동 시작 + 화면에 배너 표시
+- 로블록스 종료 시 타이머도 자동 중지, 대기 화면으로 복귀
+
+### 🔒 종료 방지 + 트레이 상시 유지
+아이가 앱을 강제로 닫는 경로를 모두 차단합니다.
+
+- X버튼 / Alt+F4 → 앱 종료 대신 트레이로 숨김
+- 작업 표시줄 아이콘 없음 (`skipTaskbar: true`)
+- 트레이 우클릭 메뉴에 종료 옵션 없음
+- 트레이 단일 클릭 → 메인 창 표시
+
+### 🔄 재부팅 후 타이머 자동 복원
+아이가 타이머를 피하기 위해 컴퓨터를 재시작하는 상황을 방지합니다.
+
+- 타이머 시작 시 `~/.mypact/timer-state.json`에 상태 저장
+- 재시작 후 당일 유효한 타이머가 있으면 남은 시간부터 자동 재개
+- 자정 이후(날짜 변경) 또는 관리자 설정에서 비활성화 시 무효화
+
+### 🛡️ 관리자 PIN 패널 (트레이 3클릭)
+부모만 접근할 수 있는 비밀 관리자 패널입니다.
+
+**접근 방법**: 트레이 아이콘을 1.5초 이내에 **3번 클릭**
+
+**기능**:
+| 기능 | 설명 |
+|------|------|
+| 타이머 시간 추가 | 실행 중인 타이머에 +15분 / +30분 / +60분 |
+| 타이머 중지 | 관리자 권한으로 즉시 중지 |
+| 재부팅 복원 토글 | 재시작 후 타이머 유지 여부 ON/OFF |
+| 비밀번호 변경 | 현재 비밀번호 확인 후 새 비밀번호로 변경 |
+
+- 초기 비밀번호: `0000`
+- 5회 오입력 시 30초 잠금
+
+### ⚙️ 설정 화면
+- 평일 / 주말 허용 시간 (분 단위)
+- 게임 시작 가능 시각 / 종료 시각 설정
+- 설정 저장 (`~/.mypact/settings.json`)
 
 ---
 
@@ -73,45 +111,63 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 
 | 항목 | 내용 |
 |------|------|
-| **런타임** | Electron 35 |
+| **런타임** | Electron 31 |
 | **UI 프레임워크** | React 18 + TypeScript |
 | **빌드 도구** | electron-vite |
 | **스타일링** | Tailwind CSS |
-| **폰트** | DSEG7 Classic (전자시계 7-세그먼트) |
-| **패키지 매니저** | Bun |
-| **배포 타겟** | Windows 11 (.exe) |
-| **개발 환경** | macOS |
-| **데이터 저장** | 로컬 JSON 파일 (`os.homedir()` 기반) |
-| **프로세스 제어** | Node.js `child_process` (taskkill / killall) |
+| **폰트** | DSEG7 Classic (타이머), Black Han Sans (타이틀) |
+| **패키지 매니저** | npm |
+| **배포 타겟** | Windows 11 (NSIS 인스톨러) |
+| **데이터 저장** | 로컬 JSON 파일 (`~/.mypact/`) |
+| **프로세스 제어** | Node.js `child_process` (taskkill) |
+| **보안** | SHA-256 비밀번호 해싱 (Web Crypto API) |
+
+---
+
+## 데이터 저장 위치
+
+모든 데이터는 `~/.mypact/` (사용자 홈 디렉터리) 에 저장됩니다.
+
+```
+~/.mypact/
+├── settings.json       # 허용 시간, 시간대, 비밀번호 해시 등
+├── settings.json.bak   # 설정 저장 실패 대비 자동 백업
+├── sessions.json       # 게임 세션 기록
+└── timer-state.json    # 재부팅 복원용 타이머 상태 (실행 중에만 존재)
+```
 
 ---
 
 ## 프로젝트 구조
 
 ```
-my-pact-for-my-future/
-├── 01-idea-brief.md          # 아이디어 브리프
-├── PRD/                      # 기획 문서
-│   ├── 01_PRD.md             # 기능 명세
-│   ├── 02_DATA_MODEL.md      # 데이터 구조
-│   ├── 03_PHASES.md          # Phase 개발 계획
-│   └── 04_PROJECT_SPEC.md    # 기술 스택 명세
-├── electron-app/
-│   └── src/
-│       ├── main/
-│       │   ├── main.ts       # Electron 메인 프로세스
-│       │   ├── ipc.ts        # IPC 핸들러 (타이머, 경고, 종료)
-│       │   └── fileStore.ts  # 로컬 JSON 파일 I/O
-│       ├── preload/
-│       │   └── index.ts      # Preload 스크립트
-│       └── renderer/src/
-│           ├── pages/
-│           │   ├── Timer.tsx     # 타이머 화면 (오버레이 위젯)
-│           │   └── Settings.tsx  # 부모 설정 화면
-│           └── components/
-│               └── WarningPopup.tsx
+roblox-playtime-guardian/
+├── CHANGELOG.md              # 버전별 변경 이력
+├── README.md                 # 이 파일
 ├── DEVLOG.md                 # 개발 일지
-└── AI_CASE_STUDY.md          # AI 활용 사례 게시글
+├── AI_CASE_STUDY.md          # AI 활용 사례 게시글
+├── PRD/                      # 기획 문서
+└── electron-app/
+    ├── package.json          # v0.3.0
+    ├── resources/
+    │   ├── icon.ico          # Windows 앱 아이콘
+    │   ├── icon-256.png      # macOS 앱 아이콘
+    │   └── tray-icon.png     # 트레이 아이콘 (스톱워치)
+    └── src/
+        ├── main/
+        │   ├── main.ts       # 메인 프로세스 (트레이, 타이머, 창 관리)
+        │   ├── ipc.ts        # IPC 핸들러 (설정, 세션, 관리자)
+        │   └── fileStore.ts  # 로컬 JSON 파일 I/O
+        ├── preload/
+        │   └── index.ts      # Preload 스크립트
+        └── renderer/src/
+            ├── App.tsx       # 라우팅 (일반 / 관리자 창)
+            ├── index.css     # 글로벌 스타일
+            ├── env.d.ts      # window.api 타입 선언
+            └── pages/
+                ├── Timer.tsx      # 메인 타이머 + 오버레이
+                ├── Settings.tsx   # 설정 화면
+                └── AdminPanel.tsx # 관리자 PIN 패널
 ```
 
 ---
@@ -120,38 +176,53 @@ my-pact-for-my-future/
 
 ### 요구사항
 - Node.js 18+
-- Bun
 
 ### 개발 모드 실행
 
 ```bash
 cd electron-app
-bun install
-bun run dev
+npm install
+npm run dev
 ```
 
 ### Windows 배포 빌드
 
+> **빌드 전 반드시 확인 후 진행**
+
 ```bash
 cd electron-app
-bun run build:win
+npm run package:win
 ```
 
-빌드 결과물: `electron-app/dist/` (`.exe` 설치 파일)
+빌드 결과물: `electron-app/dist/` (`.exe` NSIS 인스톨러)
+
+---
+
+## 버전 히스토리
+
+| 버전 | 날짜 | 주요 변경 |
+|------|------|-----------|
+| **v0.3.0** | 2026-05-27 | 관리자 PIN 패널, Roblox 자동 감지, 재부팅 복원, UI 테마 전면 교체 |
+| **v0.2.0** | 2025 | 강제 종료, 트레이 아이콘, NSIS 패키징, 깜빡임 수정 |
+| **v0.1.0** | 2025 | 최초 구현 (타이머, 경고, 설정, 세션 기록) |
+
+전체 변경 이력: [CHANGELOG.md](./CHANGELOG.md)
 
 ---
 
 ## 로드맵
 
-- [x] **Phase 1** — Electron 타이머 앱 (오버레이 위젯 + 경고 팝업 + 강제 종료)
-- [ ] **Phase 2** — 웹 대시보드 (주간/월간 플레이 시간 그래프, Vercel 배포)
-- [ ] **Phase 3** — 요일별 자동 시간 적용, 플레이 기록 이력 화면
+- [x] **v0.1.0** — Electron 타이머 앱 (오버레이 위젯 + 경고 팝업 + 강제 종료)
+- [x] **v0.2.0** — 트레이 상주, 종료 방지, NSIS 패키징
+- [x] **v0.3.0** — 관리자 PIN 패널, Roblox 자동 감지, 재부팅 타이머 복원, UI 리디자인
+- [ ] **v0.4.0** — 요일별 개별 시간 설정, 플레이 기록 화면
+- [ ] **v1.0.0** — 웹 대시보드 연동 (주간/월간 그래프)
 
 ---
 
 ## 개발 노트
 
-- Claude Code (AI 코딩 도구)와 함께 기획부터 구현까지 하루 만에 완성
+- Claude Code (AI 코딩 도구)와 함께 기획부터 구현까지 진행
 - 개발 과정은 [DEVLOG.md](./DEVLOG.md) 참조
 - AI 활용 사례 게시글: [AI_CASE_STUDY.md](./AI_CASE_STUDY.md)
 
