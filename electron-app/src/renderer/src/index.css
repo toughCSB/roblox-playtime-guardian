@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* DSEG7 — 7세그먼트 전자시계 폰트 (MIT License) */
+@font-face {
+  font-family: 'DSEG7';
+  src: url('./assets/fonts/DSEG7Classic-Bold.woff2') format('woff2');
+  font-weight: bold;
+  font-style: normal;
+  font-display: block;
+}
+
+/* Electron 창 드래그 영역 */
+.app-drag { -webkit-app-region: drag; }
+.no-drag  { -webkit-app-region: no-drag; }
