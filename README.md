@@ -42,6 +42,28 @@ MS Family Safety 같은 기존 자녀 보호 앱은 오류가 잦고, 자녀와�
 
 > 로블록스 테마 배경 · "나와의 서약" 타이틀 · 빨간 시작 버튼 · 하단 캐릭터 이미지
 
+### ⚙️ 설정 화면
+
+![설정 화면](screenshots/settings-screen.png)
+
+> 평일/주말 허용 시간 · 게임 시작 가능 시각 · 종료 시각 설정
+
+### 🕹️ 타이머 오버레이 — 시간대별 색상
+
+| 초록 (5분 초과) | 노랑 (5분 이하) | 주황 (3분 이하) | 빨강 (1분 이하) |
+|:-:|:-:|:-:|:-:|
+| ![green](screenshots/timer-green.png) | ![yellow](screenshots/timer-yellow.png) | ![orange](screenshots/timer-orange.png) | ![red](screenshots/timer-red.png) |
+
+> 우측 상단 코너에 반투명 오버레이로 표시 · DSEG7 전자시계 폰트
+
+### ⚠️ 경고 팝업 + 카운트다운
+
+| 경고 메시지 (5분 전) | 최종 카운트다운 (10초) |
+|:-:|:-:|
+| ![warning](screenshots/timer-warning.png) | ![countdown](screenshots/timer-countdown.png) |
+
+> 경고 시 타이머가 화면 중앙으로 이동해 메시지 표시 후 코너로 복귀 · 10초부터는 중앙 유지
+
 ---
 
 ## 주요 기능
