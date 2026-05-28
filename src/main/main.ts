@@ -45,6 +45,19 @@ function killRoblox(): void {
   }
 }
 
+function pauseTimerInternals(): void {
+  if (timerInterval) {
+    clearInterval(timerInterval)
+    timerInterval = null
+  }
+  timerStart = null
+  timerLimitMs = null
+  warnedMinutes.clear()
+  inCenterMode = false
+  timerDisplay = null
+  // clearTimerState() 미호출 — pausedRemainingMs 파일 보존
+}
+
 function stopTimerInternals(): void {
   if (timerInterval) {
     clearInterval(timerInterval)
@@ -229,8 +242,11 @@ function tryResumeTimer(): boolean {
     return false
   }
 
-  const elapsed = Date.now() - state.startTime
-  const remaining = state.limitMs - elapsed
+  // pausedRemainingMs가 있으면 일시정지 스냅샷 사용, 없으면 startTime 기준 계산
+  const remaining = state.pausedRemainingMs !== undefined
+    ? state.pausedRemainingMs
+    : Math.max(0, state.limitMs - (Date.now() - state.startTime))
+
   if (remaining <= 0) {
     clearTimerState()
     return false
@@ -380,11 +396,35 @@ function createWindow(): void {
   })
 
   ipcMain.handle('timer:start', async (_e, { limitMinutes }: { limitMinutes: number }) => {
-    if (mainWindow) startTimer(mainWindow, limitMinutes)
+    if (!mainWindow) return { resumed: false, remainingSeconds: limitMinutes * 60 }
+    const today = new Date().toISOString().slice(0, 10)
+    const state = readTimerState()
+    if (state && state.date === today && state.pausedRemainingMs !== undefined && state.pausedRemainingMs > 0) {
+      // 일시정지 상태 복원 — resumeTimerOnRestart 설정과 무관하게 항상 재개
+      startTimer(mainWindow, limitMinutes, state.pausedRemainingMs)
+      const remainingSeconds = Math.ceil(state.pausedRemainingMs / 1000)
+      return { resumed: true, remainingSeconds }
+    }
+    startTimer(mainWindow, limitMinutes)
+    return { resumed: false, remainingSeconds: limitMinutes * 60 }
   })
 
   ipcMain.handle('timer:stop', async () => {
     stopTimerInternals()
+    hideToTray()
+  })
+
+  ipcMain.handle('timer:pause', async () => {
+    if (timerStart !== null && timerLimitMs !== null) {
+      const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
+      if (remainingMs > 0) {
+        const today = new Date().toISOString().slice(0, 10)
+        writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today, pausedRemainingMs: remainingMs })
+      } else {
+        clearTimerState()
+      }
+    }
+    pauseTimerInternals()
     hideToTray()
   })
 

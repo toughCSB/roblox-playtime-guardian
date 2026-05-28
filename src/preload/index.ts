@@ -7,9 +7,10 @@ const api = {
   readSessions: (): Promise<Session[]> => ipcRenderer.invoke('sessions:read'),
   appendSession: (s: Omit<Session, 'id'>): Promise<void> => ipcRenderer.invoke('sessions:append', s),
 
-  startTimer: (limitMinutes: number): Promise<void> =>
+  startTimer: (limitMinutes: number): Promise<{ resumed: boolean; remainingSeconds: number }> =>
     ipcRenderer.invoke('timer:start', { limitMinutes }),
   stopTimer: (): Promise<void> => ipcRenderer.invoke('timer:stop'),
+  pauseTimer: (): Promise<void> => ipcRenderer.invoke('timer:pause'),
   killRoblox: (): Promise<void> => ipcRenderer.invoke('roblox:kill'),
 
   timerGetStatus: (): Promise<{ running: boolean; remainingSeconds: number }> =>

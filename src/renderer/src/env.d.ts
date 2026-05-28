@@ -10,8 +10,9 @@ declare global {
       readSessions(): Promise<Session[]>
       appendSession(s: Omit<Session, 'id'>): Promise<void>
 
-      startTimer(limitMinutes: number): Promise<void>
+      startTimer(limitMinutes: number): Promise<{ resumed: boolean; remainingSeconds: number }>
       stopTimer(): Promise<void>
+      pauseTimer(): Promise<void>
       killRoblox(): Promise<void>
 
       timerGetStatus(): Promise<{ running: boolean; remainingSeconds: number }>

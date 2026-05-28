@@ -20,9 +20,10 @@ export interface Session {
 }
 
 export interface TimerState {
-  startTime: number  // Date.now() at timer start
-  limitMs: number    // total limit in ms
-  date: string       // YYYY-MM-DD — 날짜 다르면 무효
+  startTime: number        // Date.now() at timer start
+  limitMs: number          // total limit in ms
+  date: string             // YYYY-MM-DD — 날짜 다르면 무효
+  pausedRemainingMs?: number  // 로블록스 종료로 일시정지 시 잔여 ms 스냅샷
 }
 
 // SHA-256('0000')

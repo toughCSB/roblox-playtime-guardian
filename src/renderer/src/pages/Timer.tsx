@@ -58,9 +58,10 @@ export default function Timer({ onOpenSettings }: Props) {
     const now = new Date()
     setSessionStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
     setOverlayMode('corner')
-    await api.startTimer(limit)
+    const result = await api.startTimer(limit)
     setIsRunning(true)
-    setRemainingSeconds(limit * 60)
+    // 일시정지 복원이면 실제 잔여 시간, 신규 시작이면 전체 시간
+    setRemainingSeconds(result?.remainingSeconds ?? limit * 60)
   }
 
   // Roblox 자동 감지 → 타이머 자동 시작
@@ -80,7 +81,7 @@ export default function Timer({ onOpenSettings }: Props) {
     })
     const removeClosed = api.onRobloxClosed(() => {
       if (!isRunning) return
-      api.stopTimer()
+      api.pauseTimer()  // 잔여 시간 파일에 저장 후 일시정지
       setIsRunning(false)
       setOverlayMode('corner')
       setRemainingSeconds(0)
