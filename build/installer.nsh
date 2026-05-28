@@ -5,14 +5,15 @@
 ; 제거 시: customUnInit에서 PIN 검증 (틀리면 Abort) → customUnInstall에서 정리
 
 !macro customInstall
-  ; 기존 레지스트리 자동 실행 항목 제거 (Scheduled Task로 대체)
+  ; 기존 레지스트리 자동 실행 항목 정리
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Pact"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "나의 약속"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "My Pact for My Future"
-  ; 로그온 시 HIGHEST 권한으로 앱 실행 (표준 사용자가 작업 관리자로 종료 불가)
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "MyPactForMyFuture"
+  ; HKLM\Run: 모든 사용자 로그온 시 각자 세션에서 자동 시작 (자녀 표준 계정 포함)
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "MyPactForMyFuture" '"$INSTDIR\My Pact for My Future.exe"'
+  ; Scheduled Task: admin 세션용 HIGHEST 권한 자동 시작 (병행 유지)
   ExecWait 'schtasks /create /tn "MyPactForMyFuture" /tr "\"$INSTDIR\My Pact for My Future.exe\"" /sc onlogon /rl HIGHEST /delay 0000:30 /f'
-  ; 워치독: 1분마다 앱 실행 여부 확인 → 꺼져 있으면 재시작 (표준 사용자는 HIGHEST 프로세스 종료 불가)
-  ExecWait 'schtasks /create /tn "PactWatchdog" /tr "powershell.exe -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"$INSTDIR\resources\resources\watchdog.ps1\"" /sc MINUTE /mo 1 /rl HIGHEST /f'
   ; 초기 제거 PIN 레지스트리 기록 (기본값: 0000)
   WriteRegStr HKLM "Software\MyPact" "UninstallPin" "0000"
 !macroend
@@ -52,5 +53,6 @@
 !macro customUnInstall
   ExecWait 'schtasks /delete /tn "MyPactForMyFuture" /f'
   ExecWait 'schtasks /delete /tn "PactWatchdog" /f'
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "MyPactForMyFuture"
   DeleteRegKey HKLM "Software\MyPact"
 !macroend

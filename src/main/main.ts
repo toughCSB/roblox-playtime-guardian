@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen, Tray, nativeImage } from 'electron'
 import { join } from 'path'
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
+import { existsSync } from 'fs'
 import { registerIpcHandlers } from './ipc'
 import { readSettings, writeTimerState, clearTimerState, readTimerState } from './fileStore'
 
@@ -212,32 +213,44 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
   }, 1000)
 }
 
-function tryResumeTimer(): void {
+function tryResumeTimer(): boolean {
   const win = mainWindow
-  if (!win) return
+  if (!win) return false
 
   const settings = readSettings()
-  if (!settings.resumeTimerOnRestart) return
+  if (!settings.resumeTimerOnRestart) return false
 
   const state = readTimerState()
-  if (!state) return
+  if (!state) return false
 
   const today = new Date().toISOString().slice(0, 10)
   if (state.date !== today) {
     clearTimerState()
-    return
+    return false
   }
 
   const elapsed = Date.now() - state.startTime
   const remaining = state.limitMs - elapsed
   if (remaining <= 0) {
     clearTimerState()
-    return
+    return false
   }
 
   const limitMinutes = state.limitMs / 60000
   startTimer(win, limitMinutes, remaining)
   win.webContents.send('timer:resumed', { remainingSeconds: Math.ceil(remaining / 1000) })
+  return true
+}
+
+function spawnWatchdog(): void {
+  if (!app.isPackaged) return
+  const watchdogPath = join(process.resourcesPath, 'resources', 'watch-loop.ps1')
+  if (!existsSync(watchdogPath)) return
+  const ps = spawn('powershell.exe', [
+    '-NonInteractive', '-WindowStyle', 'Hidden',
+    '-ExecutionPolicy', 'Bypass', '-File', watchdogPath,
+  ], { detached: true, stdio: 'ignore', windowsHide: true })
+  ps.unref()
 }
 
 function openAdminWindow(): void {
@@ -351,6 +364,7 @@ function createWindow(): void {
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: true,
+    show: false,
     skipTaskbar: true,
     webPreferences: {
       preload: preloadPath,
@@ -371,7 +385,7 @@ function createWindow(): void {
 
   ipcMain.handle('timer:stop', async () => {
     stopTimerInternals()
-    if (mainWindow) restoreWindow(mainWindow)
+    hideToTray()
   })
 
   ipcMain.handle('timer:get-status', async () => {
@@ -426,9 +440,13 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   startRobloxDetection()
+  spawnWatchdog()
 
   mainWindow?.webContents.once('did-finish-load', () => {
-    setTimeout(() => tryResumeTimer(), 500)
+    setTimeout(() => {
+      const resumed = tryResumeTimer()
+      if (!resumed) mainWindow?.hide()
+    }, 500)
   })
 
   app.on('activate', () => {
