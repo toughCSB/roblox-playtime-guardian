@@ -110,7 +110,7 @@ export default function Timer({ onOpenSettings }: Props) {
     const api = window.api
     if (!api) return
     const removeDetected = api.onRobloxDetected(() => {
-      if (isRunning) return
+      if (isRunning || dailyExhausted) return
       const s = settings ?? DEFAULT_SETTINGS
       const now = new Date()
       const hour = now.getHours()
@@ -127,11 +127,10 @@ export default function Timer({ onOpenSettings }: Props) {
       setOverlayMode('corner')
       setRemainingSeconds(0)
       setSessionStartTime('')
-      // 일시정지 후 남은 쿼터 갱신
       refreshDailyUsage()
     })
     return () => { removeDetected(); removeClosed() }
-  }, [isRunning, settings])
+  }, [isRunning, settings, dailyExhausted])
 
   // 재부팅 후 타이머 복원
   useEffect(() => {

@@ -1,6 +1,6 @@
 {
   "name": "my-pact-for-my-future",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "자녀의 로블록스 시간을 관리하는 Electron 타이머 앱",
   "main": "out/main/main.js",
   "scripts": {
