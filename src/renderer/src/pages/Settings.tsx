@@ -79,26 +79,72 @@ export default function SettingsPage({ onBack }: Props) {
       {/* 설정 항목들 */}
       <div className="no-drag flex flex-col gap-3 px-5 flex-1 overflow-y-auto">
         <p style={{ color: '#E8001C', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px', marginBottom: '2px' }}>
-          하루 허용 시간
+          하루 허용 시간 (세션당 분 × 횟수)
         </p>
 
-        <Row label="평일" unit="분">
-          <input
-            type="number" min={5} max={240}
-            value={settings.weekdayLimit}
-            onChange={(e) => setSettings(s => ({ ...s, weekdayLimit: Number(e.target.value) }))}
-            className="setting-input"
-          />
-        </Row>
+        {/* 평일: XX분 × X회 */}
+        <div style={{
+          background: 'rgba(255,255,255,0.22)', backdropFilter: 'blur(8px)',
+          borderRadius: '14px', padding: '14px 18px',
+          border: '1px solid rgba(255,255,255,0.35)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ color: '#fff', fontSize: '15px', fontWeight: 700 }}>평일</span>
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>
+              합계 {settings.weekdayLimit * (settings.weekdaySessionCount ?? 1)}분
+            </span>
+          </div>
+          <div className="no-drag" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="number" min={5} max={240}
+              value={settings.weekdayLimit}
+              onChange={(e) => setSettings(s => ({ ...s, weekdayLimit: Number(e.target.value) }))}
+              className="setting-input"
+            />
+            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>분</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '18px', marginInline: '2px' }}>×</span>
+            <input
+              type="number" min={1} max={10}
+              value={settings.weekdaySessionCount ?? 1}
+              onChange={(e) => setSettings(s => ({ ...s, weekdaySessionCount: Number(e.target.value) }))}
+              className="setting-input"
+              style={{ width: '52px' }}
+            />
+            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>회</span>
+          </div>
+        </div>
 
-        <Row label="주말" unit="분">
-          <input
-            type="number" min={5} max={480}
-            value={settings.weekendLimit}
-            onChange={(e) => setSettings(s => ({ ...s, weekendLimit: Number(e.target.value) }))}
-            className="setting-input"
-          />
-        </Row>
+        {/* 주말: XX분 × X회 */}
+        <div style={{
+          background: 'rgba(255,255,255,0.22)', backdropFilter: 'blur(8px)',
+          borderRadius: '14px', padding: '14px 18px',
+          border: '1px solid rgba(255,255,255,0.35)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ color: '#fff', fontSize: '15px', fontWeight: 700 }}>주말</span>
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>
+              합계 {settings.weekendLimit * (settings.weekendSessionCount ?? 1)}분
+            </span>
+          </div>
+          <div className="no-drag" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="number" min={5} max={480}
+              value={settings.weekendLimit}
+              onChange={(e) => setSettings(s => ({ ...s, weekendLimit: Number(e.target.value) }))}
+              className="setting-input"
+            />
+            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>분</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '18px', marginInline: '2px' }}>×</span>
+            <input
+              type="number" min={1} max={10}
+              value={settings.weekendSessionCount ?? 1}
+              onChange={(e) => setSettings(s => ({ ...s, weekendSessionCount: Number(e.target.value) }))}
+              className="setting-input"
+              style={{ width: '52px' }}
+            />
+            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>회</span>
+          </div>
+        </div>
 
         <p style={{ color: '#E8001C', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px', marginTop: '8px', marginBottom: '2px' }}>
           게임 가능 시간대

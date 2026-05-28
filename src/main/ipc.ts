@@ -52,24 +52,42 @@ export function registerIpcHandlers(): void {
     writeSettings(settings)
   })
 
-  // 오늘 남은 플레이 시간 조회 — 렌더러 대기 화면 표시용
+  // 오늘 남은 세션 정보 조회
   ipcMain.handle('daily:get-remaining', async () => {
     const today = new Date().toISOString().slice(0, 10)
     const usage = readDailyUsage()
     const settings = readSettings()
     const dow = new Date().getDay()
     const isWeekend = dow === 0 || dow === 6
-    const totalMinutes = isWeekend ? settings.weekendLimit : settings.weekdayLimit
+    const perSessionMinutes = isWeekend ? settings.weekendLimit : settings.weekdayLimit
+    const sessionsPerDay = isWeekend ? settings.weekendSessionCount : settings.weekdaySessionCount
 
     if (!usage || usage.date !== today) {
-      return { remainingSeconds: totalMinutes * 60, exhausted: false, totalSeconds: totalMinutes * 60 }
+      // 새 날 또는 첫 실행
+      return {
+        remainingSeconds: perSessionMinutes * 60,
+        exhausted: false,
+        totalSeconds: perSessionMinutes * 60,
+        sessionsCompleted: 0,
+        sessionsPerDay,
+        currentSessionActive: false,
+      }
     }
 
-    const remainingMs = Math.max(0, usage.remainingMs)
+    const exhausted = usage.sessionsCompleted >= sessionsPerDay && usage.currentSessionRemainingMs <= 0
+
+    // 표시할 남은 시간: 진행 중인 세션이 있으면 그 잔여 시간, 없으면 세션 한 번의 전체 시간
+    const remainingSeconds = usage.currentSessionRemainingMs > 0
+      ? Math.ceil(usage.currentSessionRemainingMs / 1000)
+      : perSessionMinutes * 60
+
     return {
-      remainingSeconds: Math.ceil(remainingMs / 1000),
-      exhausted: usage.remainingMs <= 0,
-      totalSeconds: totalMinutes * 60,
+      remainingSeconds: exhausted ? 0 : remainingSeconds,
+      exhausted,
+      totalSeconds: perSessionMinutes * 60,
+      sessionsCompleted: usage.sessionsCompleted,
+      sessionsPerDay,
+      currentSessionActive: usage.currentSessionRemainingMs > 0,
     }
   })
 }

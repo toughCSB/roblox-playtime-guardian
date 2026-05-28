@@ -8,7 +8,6 @@ import {
   readDailyUsage, writeDailyUsage,
 } from './fileStore'
 
-// 중복 실행 방지
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 }
@@ -47,6 +46,24 @@ function killRoblox(): void {
   }
 }
 
+// 세션 카운트 헬퍼
+function getTodaySessionCount(): { sessionsPerDay: number; perSessionMinutes: number } {
+  const settings = readSettings()
+  const dow = new Date().getDay()
+  const isWeekend = dow === 0 || dow === 6
+  return {
+    sessionsPerDay: isWeekend ? settings.weekendSessionCount : settings.weekdaySessionCount,
+    perSessionMinutes: isWeekend ? settings.weekendLimit : settings.weekdayLimit,
+  }
+}
+
+function isSessionExhausted(today: string): boolean {
+  const usage = readDailyUsage()
+  if (!usage || usage.date !== today) return false
+  const { sessionsPerDay } = getTodaySessionCount()
+  return usage.sessionsCompleted >= sessionsPerDay && usage.currentSessionRemainingMs <= 0
+}
+
 function pauseTimerInternals(): void {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
   timerStart = null
@@ -81,7 +98,7 @@ function getCornerInfo(): { w: number; h: number; x: number; y: number } {
   return { w, h, x: wx + ww - w - 16, y: wy + 16 }
 }
 
-// 경고 팝업 위치: 화면 상단 30% 위치 (중앙 정렬, 화면 중심부 게임 캐릭터/마우스 미침범)
+// 경고 팝업: 화면 상단 30% (게임 캐릭터/마우스 미침범)
 function getCenterInfo(): { w: number; h: number; x: number; y: number } {
   const display = getActiveDisplay()
   const { x: wx, y: wy, width: ww, height: wh } = display.workArea
@@ -206,9 +223,14 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
     }
 
     if (remaining <= 0) {
-      // 당일 쿼터 소진 마킹 (stopTimerInternals 전에 처리)
+      // 세션 완료 — sessionsCompleted 증가, currentSession 클리어
       const today = new Date().toISOString().slice(0, 10)
-      writeDailyUsage({ date: today, remainingMs: 0 })
+      const usage = readDailyUsage()
+      writeDailyUsage({
+        date: today,
+        sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0) + 1,
+        currentSessionRemainingMs: 0,
+      })
       stopTimerInternals()
       win.webContents.send('timer:mode', { mode: 'shutdown' })
       setTimeout(() => {
@@ -236,21 +258,23 @@ function tryResumeTimer(): boolean {
     return false
   }
 
-  // 당일 쿼터 소진이면 복원하지 않음
-  const usage = readDailyUsage()
-  if (usage && usage.date === today && usage.remainingMs <= 0) {
+  // 모든 세션이 완료됐으면 복원 불가
+  if (isSessionExhausted(today)) {
     clearTimerState()
     return false
   }
 
+  // timer-state와 daily-usage 중 더 작은 값 사용 (가장 최신 상태 기준)
   const stateRemaining = state.pausedRemainingMs !== undefined
     ? state.pausedRemainingMs
     : Math.max(0, state.limitMs - (Date.now() - state.startTime))
 
-  // daily-usage와 timer-state 중 작은 값 사용 (항상 실제 남은 시간이 기준)
-  const dailyRemaining = (usage && usage.date === today) ? usage.remainingMs : state.limitMs
-  const remaining = Math.min(stateRemaining, dailyRemaining)
+  const usage = readDailyUsage()
+  const dailyRemaining = (usage && usage.date === today && usage.currentSessionRemainingMs > 0)
+    ? usage.currentSessionRemainingMs
+    : stateRemaining
 
+  const remaining = Math.min(stateRemaining, dailyRemaining)
   if (remaining <= 0) {
     clearTimerState()
     return false
@@ -356,16 +380,13 @@ function startRobloxDetection(): void {
         const settings = readSettings()
         const hour = new Date().getHours()
 
-        // 허용 시간대 밖이면 즉시 킬
         if (hour < settings.allowedStartHour || hour >= settings.allowedEndHour) {
           killRoblox()
           return
         }
 
-        // 당일 쿼터 소진이면 즉시 킬
         const today = new Date().toISOString().slice(0, 10)
-        const usage = readDailyUsage()
-        if (usage && usage.date === today && usage.remainingMs <= 0) {
+        if (isSessionExhausted(today)) {
           killRoblox()
           return
         }
@@ -409,38 +430,35 @@ function createWindow(): void {
   ipcMain.handle('timer:start', async (_e, { limitMinutes }: { limitMinutes: number }) => {
     if (!mainWindow) return { resumed: false, remainingSeconds: 0, exhausted: false }
 
-    // 입력 검증 — NaN/Infinity/음수 방어
     const limitMins = Number(limitMinutes)
     if (!isFinite(limitMins) || limitMins <= 0) {
       return { resumed: false, remainingSeconds: 0, exhausted: false }
     }
 
     const today = new Date().toISOString().slice(0, 10)
+    const { sessionsPerDay } = getTodaySessionCount()
     const usage = readDailyUsage()
+    const usageToday = usage && usage.date === today ? usage : null
 
-    let dailyRemainingMs: number
-
-    if (usage && usage.date === today) {
-      if (usage.remainingMs <= 0) {
-        // 당일 쿼터 소진 — 로블록스 종료 후 거부
-        killRoblox()
-        return { resumed: false, remainingSeconds: 0, exhausted: true }
-      }
-      dailyRemainingMs = usage.remainingMs
-    } else {
-      // 새 날 또는 첫 실행 — 당일 쿼터 초기화
-      dailyRemainingMs = Math.round(limitMins * 60 * 1000)
-      writeDailyUsage({ date: today, remainingMs: dailyRemainingMs })
+    // 현재 진행 중인 세션 재개 (같은 날, 잔여 시간 있음)
+    if (usageToday && usageToday.currentSessionRemainingMs > 0) {
+      const remaining = usageToday.currentSessionRemainingMs
+      startTimer(mainWindow, limitMins, remaining)
+      return { resumed: true, remainingSeconds: Math.ceil(remaining / 1000), exhausted: false }
     }
 
-    const fullMs = Math.round(limitMins * 60 * 1000)
-    const isResumed = dailyRemainingMs < fullMs
-    // 잔량이 전체보다 적으면 resume 모드, 같으면 신규 시작
-    startTimer(mainWindow, limitMins, isResumed ? dailyRemainingMs : undefined)
+    // 모든 세션 완료 — 거부
+    const sessionsCompleted = usageToday ? usageToday.sessionsCompleted : 0
+    if (sessionsCompleted >= sessionsPerDay) {
+      killRoblox()
+      return { resumed: false, remainingSeconds: 0, exhausted: true }
+    }
 
+    // 새 세션 시작 (fresh) — daily-usage는 세션 완료 시 업데이트
+    startTimer(mainWindow, limitMins)
     return {
-      resumed: isResumed,
-      remainingSeconds: Math.ceil(dailyRemainingMs / 1000),
+      resumed: false,
+      remainingSeconds: Math.round(limitMins * 60),
       exhausted: false,
     }
   })
@@ -449,7 +467,12 @@ function createWindow(): void {
     if (timerStart !== null && timerLimitMs !== null) {
       const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
       const today = new Date().toISOString().slice(0, 10)
-      writeDailyUsage({ date: today, remainingMs })
+      const usage = readDailyUsage()
+      writeDailyUsage({
+        date: today,
+        sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
+        currentSessionRemainingMs: remainingMs,
+      })
     }
     stopTimerInternals()
     hideToTray()
@@ -459,7 +482,13 @@ function createWindow(): void {
     if (timerStart !== null && timerLimitMs !== null) {
       const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
       const today = new Date().toISOString().slice(0, 10)
-      writeDailyUsage({ date: today, remainingMs })
+      const usage = readDailyUsage()
+      // 일시정지: 현재 세션 잔여 시간 저장 (sessionsCompleted는 만료 시에만 증가)
+      writeDailyUsage({
+        date: today,
+        sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
+        currentSessionRemainingMs: remainingMs,
+      })
       if (remainingMs > 0) {
         writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today, pausedRemainingMs: remainingMs })
       } else {
@@ -484,7 +513,12 @@ function createWindow(): void {
     timerLimitMs += minutes * 60 * 1000
     const today = new Date().toISOString().slice(0, 10)
     const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
-    writeDailyUsage({ date: today, remainingMs })
+    const usage = readDailyUsage()
+    writeDailyUsage({
+      date: today,
+      sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
+      currentSessionRemainingMs: remainingMs,
+    })
     const settings = readSettings()
     if (settings.resumeTimerOnRestart) {
       writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today })
@@ -495,7 +529,13 @@ function createWindow(): void {
     if (timerStart !== null && timerLimitMs !== null) {
       const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
       const today = new Date().toISOString().slice(0, 10)
-      writeDailyUsage({ date: today, remainingMs })
+      const usage = readDailyUsage()
+      // 관리자 중지: 세션 잔여 시간 보존 (나중에 이어서 가능)
+      writeDailyUsage({
+        date: today,
+        sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
+        currentSessionRemainingMs: remainingMs,
+      })
     }
     stopTimerInternals()
     if (mainWindow) {
@@ -505,7 +545,6 @@ function createWindow(): void {
   })
 
   ipcMain.handle('admin:close-window', async () => { adminWindow?.close() })
-
   ipcMain.handle('admin:get-resume-option', async () => readSettings().resumeTimerOnRestart)
 
   if (process.env.ELECTRON_RENDERER_URL) {

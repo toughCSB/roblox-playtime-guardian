@@ -51,9 +51,12 @@ export default function Timer({ onOpenSettings }: Props) {
   const [overlayMode, setOverlayMode] = useState<'corner' | 'center-popup' | 'center-countdown' | 'shutdown'>('corner')
   const [autoStartBanner, setAutoStartBanner] = useState(false)
 
-  // 당일 쿼터 상태
+  // 당일 세션 상태
   const [dailyRemainingSeconds, setDailyRemainingSeconds] = useState<number | null>(null)
   const [dailyExhausted, setDailyExhausted] = useState(false)
+  const [sessionsCompleted, setSessionsCompleted] = useState(0)
+  const [sessionsPerDay, setSessionsPerDay] = useState(1)
+  const [currentSessionActive, setCurrentSessionActive] = useState(false)
 
   useEffect(() => {
     window.api?.readSettings().then(setSettings)
@@ -64,6 +67,9 @@ export default function Timer({ onOpenSettings }: Props) {
     window.api?.dailyGetRemaining().then(r => {
       setDailyRemainingSeconds(r.remainingSeconds)
       setDailyExhausted(r.exhausted)
+      setSessionsCompleted(r.sessionsCompleted)
+      setSessionsPerDay(r.sessionsPerDay)
+      setCurrentSessionActive(r.currentSessionActive)
     })
   }
 
@@ -85,6 +91,7 @@ export default function Timer({ onOpenSettings }: Props) {
       setDailyExhausted(true)
       setDailyRemainingSeconds(0)
       setSessionStartTime('')
+      refreshDailyUsage()
       return
     }
 
@@ -176,8 +183,7 @@ export default function Timer({ onOpenSettings }: Props) {
       setIsRunning(false)
       setOverlayMode('corner')
       setWarningMessage(null)
-      setDailyExhausted(true)
-      setDailyRemainingSeconds(0)
+      refreshDailyUsage()
 
       if (settings && sessionStartTime) {
         const now = new Date()
@@ -417,7 +423,17 @@ export default function Timer({ onOpenSettings }: Props) {
           background: 'rgba(255,255,255,0.25)',
           color: '#fff', fontSize: '13px', fontWeight: 700,
           padding: '3px 12px', borderRadius: '20px',
-        }}>하루 {todayLimitMinutes}분</span>
+        }}>{todayLimitMinutes}분 × {sessionsPerDay}회</span>
+        {sessionsPerDay > 1 && (
+          <span style={{
+            background: sessionsCompleted >= sessionsPerDay
+              ? 'rgba(255,23,68,0.35)' : 'rgba(255,255,255,0.18)',
+            color: '#fff', fontSize: '12px', fontWeight: 700,
+            padding: '3px 10px', borderRadius: '20px',
+          }}>
+            {sessionsCompleted}/{sessionsPerDay}회 완료
+          </span>
+        )}
       </div>
 
       {/* 오늘 남은 시간 카드 */}
@@ -434,7 +450,11 @@ export default function Timer({ onOpenSettings }: Props) {
             color: dailyExhausted ? '#ff8a80' : 'rgba(255,255,255,0.8)',
             fontSize: '11px', marginBottom: '4px', letterSpacing: '1px', fontWeight: 600,
           }}>
-            {dailyExhausted ? '오늘 게임 시간 소진 ✋' : '오늘 남은 시간'}
+            {dailyExhausted
+              ? '오늘 게임 시간 소진 ✋'
+              : currentSessionActive
+                ? '이번 세션 남은 시간'
+                : '세션당 시간'}
           </p>
           <div style={{
             fontFamily: "'DSEG7', 'Courier New', monospace",

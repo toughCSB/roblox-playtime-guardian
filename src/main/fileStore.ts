@@ -31,10 +31,12 @@ export function readSettings(): Settings {
     const parsed = JSON.parse(raw) as Partial<Settings>
     const merged = { ...DEFAULT_SETTINGS, ...parsed }
     // 수치 필드 전체 검증 — NaN/Infinity/범위 초과 시 기본값으로 교체
-    merged.weekdayLimit     = safeInt(merged.weekdayLimit,     DEFAULT_SETTINGS.weekdayLimit,     1, 480)
-    merged.weekendLimit     = safeInt(merged.weekendLimit,     DEFAULT_SETTINGS.weekendLimit,     1, 480)
-    merged.allowedStartHour = safeInt(merged.allowedStartHour, DEFAULT_SETTINGS.allowedStartHour, 0,  23)
-    merged.allowedEndHour   = safeInt(merged.allowedEndHour,   DEFAULT_SETTINGS.allowedEndHour,   0,  23)
+    merged.weekdayLimit        = safeInt(merged.weekdayLimit,        DEFAULT_SETTINGS.weekdayLimit,        1, 480)
+    merged.weekendLimit        = safeInt(merged.weekendLimit,        DEFAULT_SETTINGS.weekendLimit,        1, 480)
+    merged.weekdaySessionCount = safeInt(merged.weekdaySessionCount, DEFAULT_SETTINGS.weekdaySessionCount, 1,  10)
+    merged.weekendSessionCount = safeInt(merged.weekendSessionCount, DEFAULT_SETTINGS.weekendSessionCount, 1,  10)
+    merged.allowedStartHour    = safeInt(merged.allowedStartHour,    DEFAULT_SETTINGS.allowedStartHour,    0,  23)
+    merged.allowedEndHour      = safeInt(merged.allowedEndHour,      DEFAULT_SETTINGS.allowedEndHour,      0,  23)
     if (typeof merged.adminPasswordHash !== 'string' || merged.adminPasswordHash.length !== 64) {
       merged.adminPasswordHash = DEFAULT_SETTINGS.adminPasswordHash
     }
@@ -114,8 +116,11 @@ export function readDailyUsage(): DailyUsage | null {
     const raw = readFileSync(DAILY_USAGE_PATH, 'utf-8')
     const parsed = JSON.parse(raw) as DailyUsage
     if (typeof parsed.date !== 'string' || parsed.date.length !== 10) return null
-    if (!isFinite(parsed.remainingMs) || parsed.remainingMs < 0) return null
-    return { date: parsed.date, remainingMs: Math.min(parsed.remainingMs, MAX_DAILY_MS) }
+    const sessionsCompleted = isFinite(parsed.sessionsCompleted) && parsed.sessionsCompleted >= 0
+      ? Math.floor(parsed.sessionsCompleted) : 0
+    const currentSessionRemainingMs = isFinite(parsed.currentSessionRemainingMs) && parsed.currentSessionRemainingMs >= 0
+      ? Math.min(parsed.currentSessionRemainingMs, MAX_DAILY_MS) : 0
+    return { date: parsed.date, sessionsCompleted, currentSessionRemainingMs }
   } catch {
     return null
   }

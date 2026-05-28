@@ -25,7 +25,14 @@ declare global {
       adminGetResumeOption(): Promise<boolean>
       adminSetResumeOption(enabled: boolean): Promise<void>
 
-      dailyGetRemaining(): Promise<{ remainingSeconds: number; exhausted: boolean; totalSeconds: number }>
+      dailyGetRemaining(): Promise<{
+        remainingSeconds: number
+        exhausted: boolean
+        totalSeconds: number
+        sessionsCompleted: number
+        sessionsPerDay: number
+        currentSessionActive: boolean
+      }>
 
       onTimerTick(cb: (d: { remainingSeconds: number }) => void): () => void
       onTimerWarning(cb: (d: { minutesLeft: number }) => void): () => void
