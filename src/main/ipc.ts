@@ -34,12 +34,18 @@ export function registerIpcHandlers(): void {
   })
 
   // 비밀번호 변경
-  ipcMain.handle('admin:change-password', async (_e, { hash }: { hash: string }) => {
+  ipcMain.handle('admin:change-password', async (_e, { hash, plain }: { hash: string; plain?: string }) => {
     if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('invalid hash')
     const settings = readSettings()
     settings.adminPasswordHash = hash
     settings.updatedAt = new Date().toISOString()
     writeSettings(settings)
+    // NSIS 제거 PIN 레지스트리 동기화 (plain은 삭제 방지용)
+    if (plain && process.platform === 'win32') {
+      const safe = plain.replace(/['"\\&|;`<>]/g, '')
+      exec(`reg add "HKLM\\Software\\MyPact" /v UninstallPin /t REG_SZ /d "${safe}" /f`,
+        { windowsHide: true })
+    }
   })
 
   // 재부팅 후 타이머 유지 설정

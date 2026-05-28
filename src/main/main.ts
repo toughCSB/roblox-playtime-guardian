@@ -4,6 +4,11 @@ import { exec } from 'child_process'
 import { registerIpcHandlers } from './ipc'
 import { readSettings, writeTimerState, clearTimerState, readTimerState } from './fileStore'
 
+// 중복 실행 방지
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+}
+
 let mainWindow: BrowserWindow | null = null
 let adminWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -20,8 +25,8 @@ let trayClickTimer: ReturnType<typeof setTimeout> | null = null
 let robloxDetectInterval: ReturnType<typeof setInterval> | null = null
 let robloxRunning = false
 
-const CORNER_W = 172, CORNER_H = 72
-const CENTER_W = 320, CENTER_H = 140
+// 타이머 시작 시점 커서 위치 기준 모니터를 저장 (팝업/코너 이동 시 동일 모니터 유지)
+let timerDisplay: Electron.Display | null = null
 
 function getResourcesDir(): string {
   return app.isPackaged
@@ -31,8 +36,8 @@ function getResourcesDir(): string {
 
 function killRoblox(): void {
   if (process.platform === 'win32') {
-    exec('taskkill /F /IM RobloxPlayer.exe', (err) => {
-      if (err) exec('taskkill /F /IM RobloxPlayerBeta.exe')
+    exec('taskkill /F /IM RobloxPlayer.exe', { windowsHide: true }, (err) => {
+      if (err) exec('taskkill /F /IM RobloxPlayerBeta.exe', { windowsHide: true })
     })
   } else if (process.platform === 'darwin') {
     exec('pkill -x "Roblox"')
@@ -48,53 +53,85 @@ function stopTimerInternals(): void {
   timerLimitMs = null
   warnedMinutes.clear()
   inCenterMode = false
+  timerDisplay = null
   clearTimerState()
 }
 
-function getCornerPos(): { x: number; y: number } {
-  const { width } = screen.getPrimaryDisplay().workAreaSize
-  return { x: width - CORNER_W - 16, y: 16 }
+// 타이머가 표시될 모니터: 커서 위치 기준 (getPrimaryDisplay 대신 사용)
+function getActiveDisplay(): Electron.Display {
+  if (timerDisplay) return timerDisplay
+  const cursor = screen.getCursorScreenPoint()
+  return screen.getDisplayNearestPoint(cursor)
 }
 
-function getCenterPos(): { x: number; y: number } {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+// 화면 해상도에 비례한 코너 창 크기 계산
+function getCornerInfo(): { w: number; h: number; x: number; y: number } {
+  const display = getActiveDisplay()
+  const { x: wx, y: wy, width: ww } = display.workArea
+  // 1920 기준 200px, 해상도 비례 확대 (최대 360px)
+  const scale = ww / 1920
+  const w = Math.round(Math.min(360, Math.max(200, 200 * scale)))
+  const h = Math.round(w * 0.42)
+  return { w, h, x: wx + ww - w - 16, y: wy + 16 }
+}
+
+// 화면 해상도에 비례한 센터 창 크기 계산
+function getCenterInfo(): { w: number; h: number; x: number; y: number } {
+  const display = getActiveDisplay()
+  const { x: wx, y: wy, width: ww, height: wh } = display.workArea
+  const scale = ww / 1920
+  const w = Math.round(Math.min(480, Math.max(320, 320 * scale)))
+  const h = Math.round(Math.min(200, Math.max(140, 140 * scale)))
   return {
-    x: Math.round((width - CENTER_W) / 2),
-    y: Math.round((height - CENTER_H) / 2),
+    w, h,
+    x: wx + Math.round((ww - w) / 2),
+    y: wy + Math.round((wh - h) / 2),
+  }
+}
+
+function hideToTray(): void {
+  if (mainWindow) {
+    mainWindow.setAlwaysOnTop(false)
+    mainWindow.hide()
   }
 }
 
 function moveToCenterPopup(win: BrowserWindow): void {
-  win.setOpacity(0)
-  const { x, y } = getCenterPos()
-  win.setSize(CENTER_W, CENTER_H, false)
+  win.hide()
+  const { w, h, x, y } = getCenterInfo()
+  win.setSize(w, h, false)
   win.setPosition(x, y)
   win.webContents.send('timer:mode', { mode: 'center-popup' })
-  setTimeout(() => win.setOpacity(1), 40)
+  setTimeout(() => win.show(), 40)
 }
 
 function moveToCorner(win: BrowserWindow): void {
-  win.setOpacity(0)
-  const { x, y } = getCornerPos()
-  win.setSize(CORNER_W, CORNER_H, false)
+  win.hide()
+  const { w, h, x, y } = getCornerInfo()
+  win.setSize(w, h, false)
   win.setPosition(x, y)
   win.webContents.send('timer:mode', { mode: 'corner' })
-  setTimeout(() => win.setOpacity(1), 40)
+  setTimeout(() => win.show(), 40)
 }
 
 function restoreWindow(win: BrowserWindow): void {
-  win.setOpacity(0)
+  win.hide()
   win.setSize(380, 620, false)
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  win.setPosition(Math.round((width - 380) / 2), Math.round((height - 620) / 2))
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const { x: wx, y: wy, width: ww, height: wh } = display.workArea
+  win.setPosition(wx + Math.round((ww - 380) / 2), wy + Math.round((wh - 620) / 2))
   win.setAlwaysOnTop(false)
   win.setSkipTaskbar(true)
-  win.show()
-  setTimeout(() => win.setOpacity(1), 40)
+  setTimeout(() => win.show(), 40)
 }
 
 function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?: number): void {
   stopTimerInternals()
+
+  // 타이머 시작 시점의 커서 위치로 모니터 확정
+  const cursor = screen.getCursorScreenPoint()
+  timerDisplay = screen.getDisplayNearestPoint(cursor)
 
   const limitMs = limitMinutes * 60 * 1000
   timerLimitMs = limitMs
@@ -114,13 +151,13 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
     writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today })
   }
 
-  win.setOpacity(0)
-  const { x, y } = getCornerPos()
-  win.setSize(CORNER_W, CORNER_H, false)
+  const { w, h, x, y } = getCornerInfo()
+  win.hide()
+  win.setSize(w, h, false)
   win.setPosition(x, y)
   win.setAlwaysOnTop(true, 'floating')
   win.setSkipTaskbar(true)
-  setTimeout(() => win.setOpacity(1), 40)
+  setTimeout(() => win.show(), 100)
 
   timerInterval = setInterval(() => {
     if (timerStart === null || timerLimitMs === null) return
@@ -133,7 +170,7 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
 
     const minutesLeft = Math.ceil(remaining / 60000)
     for (const warnAt of [5, 3, 1]) {
-      if (minutesLeft <= warnAt && minutesLeft > 0 && !warnedMinutes.has(warnAt)) {
+      if (minutesLeft <= warnAt && limitMinutes > warnAt && minutesLeft > 0 && !warnedMinutes.has(warnAt)) {
         warnedMinutes.add(warnAt)
         win.webContents.send('timer:warning', { minutesLeft: warnAt })
         if (!inCenterMode) {
@@ -155,12 +192,12 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
     if (remainingSeconds <= 10 && remainingSeconds > 0 && !warnedMinutes.has(-1)) {
       warnedMinutes.add(-1)
       inCenterMode = true
-      win.setOpacity(0)
-      const { x: cx, y: cy } = getCenterPos()
-      win.setSize(CENTER_W, CENTER_H, false)
+      win.hide()
+      const { w: cw, h: ch, x: cx, y: cy } = getCenterInfo()
+      win.setSize(cw, ch, false)
       win.setPosition(cx, cy)
       win.webContents.send('timer:mode', { mode: 'center-countdown' })
-      setTimeout(() => win.setOpacity(1), 40)
+      setTimeout(() => win.show(), 40)
     }
 
     if (remaining <= 0) {
@@ -168,7 +205,7 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
       win.webContents.send('timer:mode', { mode: 'shutdown' })
       setTimeout(() => {
         killRoblox()
-        restoreWindow(win)
+        hideToTray()
         win.webContents.send('timer:expired')
       }, 3000)
     }
@@ -211,10 +248,16 @@ function openAdminWindow(): void {
   }
 
   const preloadPath = join(__dirname, '../preload/index.js')
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const { x: wx, y: wy, width: ww, height: wh } = display.workArea
+  const AW = 360, AH = 560
 
   adminWindow = new BrowserWindow({
-    width: 360,
-    height: 560,
+    width: AW,
+    height: AH,
+    x: wx + Math.round((ww - AW) / 2),
+    y: wy + Math.round((wh - AH) / 2),
     resizable: false,
     frame: false,
     transparent: false,
@@ -240,44 +283,55 @@ function openAdminWindow(): void {
   })
 }
 
+function addTrayClick(count = 1): void {
+  const now = Date.now()
+  trayClicks = trayClicks.filter(t => now - t < 1500)
+  for (let i = 0; i < count; i++) trayClicks.push(now)
+
+  if (trayClickTimer) clearTimeout(trayClickTimer)
+
+  if (trayClicks.length >= 3) {
+    trayClicks = []
+    openAdminWindow()
+    return
+  }
+
+  trayClickTimer = setTimeout(() => {
+    trayClicks = []
+    mainWindow?.show()
+    mainWindow?.focus()
+  }, 400)
+}
+
 function createTray(): void {
   const iconPath = join(getResourcesDir(), 'tray-icon.png')
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
   tray = new Tray(icon)
   tray.setToolTip('Pact')
 
-  tray.on('click', () => {
-    const now = Date.now()
-    trayClicks = trayClicks.filter(t => now - t < 1500)
-    trayClicks.push(now)
-
-    if (trayClickTimer) clearTimeout(trayClickTimer)
-
-    if (trayClicks.length >= 3) {
-      trayClicks = []
-      openAdminWindow()
-      return
-    }
-
-    trayClickTimer = setTimeout(() => {
-      trayClicks = []
-      mainWindow?.show()
-      mainWindow?.focus()
-    }, 400)
-  })
+  tray.on('click', () => addTrayClick(1))
+  // Windows: 빠른 2번 클릭은 double-click 이벤트 1개로 오므로 +2로 계산
+  tray.on('double-click', () => addTrayClick(2))
 }
 
 function startRobloxDetection(): void {
   if (robloxDetectInterval) return
 
   robloxDetectInterval = setInterval(() => {
-    exec('tasklist /FO CSV /NH', (err, stdout) => {
+    exec('tasklist /FO CSV /NH', { windowsHide: true }, (err, stdout) => {
       if (err) return
       const isRunning = /RobloxPlayer(Beta)?\.exe/i.test(stdout)
 
       if (isRunning && !robloxRunning) {
         robloxRunning = true
-        mainWindow?.webContents.send('roblox:detected')
+        // 허용 시간 외에는 main 프로세스에서 즉시 강제 종료
+        const settings = readSettings()
+        const hour = new Date().getHours()
+        if (hour < settings.allowedStartHour || hour >= settings.allowedEndHour) {
+          killRoblox()
+        } else {
+          mainWindow?.webContents.send('roblox:detected')
+        }
       } else if (!isRunning && robloxRunning) {
         robloxRunning = false
         mainWindow?.webContents.send('roblox:closed')
@@ -292,7 +346,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 380,
     height: 620,
-    resizable: false,
+    // resizable: false 제거 — frame:false라 사용자가 크기 조절 불가, setSize()는 정상 동작
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -372,10 +426,6 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   startRobloxDetection()
-
-  if (process.platform === 'win32' && app.isPackaged) {
-    app.setLoginItemSettings({ openAtLogin: true, name: 'Pact' })
-  }
 
   mainWindow?.webContents.once('did-finish-load', () => {
     setTimeout(() => tryResumeTimer(), 500)

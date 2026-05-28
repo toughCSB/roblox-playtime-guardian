@@ -5,6 +5,55 @@
 
 ---
 
+## [0.3.1] — 2026-05-28
+
+### 추가
+
+#### 앱 삭제 방지 (NSIS 언인스톨러 PIN 잠금)
+- **의도**: 아이가 제어판/설정에서 앱을 직접 삭제하는 경로 차단
+- 제거 시작 전(`un.onInit`) PowerShell VB InputBox로 부모 PIN 입력 요구
+- PIN 불일치 또는 입력 취소 시 `Abort`로 파일 삭제 전 완전 차단
+- 설치 시 초기 PIN `0000`을 `HKLM\Software\MyPact\UninstallPin` 레지스트리에 기록
+- 관리자 PIN 변경 시 레지스트리 값도 자동 동기화 (`ipc.ts` → `reg add`)
+
+#### 작업 관리자 강제 종료 방지 (NSIS Scheduled Task)
+- **의도**: 아이가 작업 관리자에서 프로세스를 강제로 종료하는 경로 차단
+- 설치 시 `schtasks /create /rl HIGHEST`로 로그온 시 HIGHEST 권한으로 앱 실행 등록
+- 표준 사용자는 높은 권한 프로세스를 작업 관리자에서 종료 불가
+- 제거 시 Scheduled Task 자동 삭제, 레지스트리 정리
+
+### 변경
+
+#### 프로젝트 구조 통합
+- `electron-app/` 하위 디렉터리를 루트로 이전 — `cd electron-app` 없이 루트에서 `npm run dev` / `npm run package:win` 바로 실행 가능
+
+#### 해상도 독립 레이아웃 (`Timer.tsx`)
+- **의도**: HD 모니터(1920×1080)에서 빨간 시작 버튼·설정 버튼이 가려지는 문제 수정
+- 캐릭터 이미지를 `position: absolute` → `flex: '1 1 0'` 으로 변경 — 콘텐츠 영역이 먼저 확보된 뒤 남은 공간을 채우는 방식
+- 모든 콘텐츠 섹션에 `flexShrink: 0` 추가 — flex 압축으로 버튼이 밀리는 현상 방지
+- `<p>` 태그 브라우저 기본 margin(`1em 0`) 을 명시적으로 `margin: 0`으로 초기화 — 여백 넘침 방지
+- 서브타이틀 "My Pact for My Future" 복원 (이탤릭 · `Georgia` 폰트)
+- 전체 패딩 최적화: HD ~620px 창 높이에서 모든 요소 표시 보장
+
+#### Roblox 자동 감지 개선 (`main.ts`)
+- **의도**: 허용 시간 외에 로블록스가 실행될 경우 타이머 시작 없이 즉시 강제 종료
+- 로블록스 감지 후 허용 시간대(allowedStartHour ~ allowedEndHour) 확인을 main 프로세스에서 직접 처리
+- 허용 시간 외 감지 시 `killRoblox()` 즉시 호출 (렌더러 IPC 거치지 않음)
+- 기존: 허용 시간 외에도 타이머가 시작되거나 무시되는 버그 수정
+
+#### PIN 입력 키보드 지원 (`AdminPanel.tsx`)
+- 물리 숫자키(0–9), `Backspace`, `Enter`로 PIN 입력 가능 (기존 버튼 클릭 전용)
+
+#### 타이머 표시 모니터 고정 (`main.ts`)
+- 타이머 시작 시점의 커서 위치 기준 모니터를 `timerDisplay`에 저장
+- 팝업 이동·코너 복귀 시 항상 동일 모니터 사용 (`getActiveDisplay()`)
+- 다중 모니터 환경에서 타이머가 다른 화면으로 튀는 문제 방지
+
+#### 동적 코너 창 크기 (`main.ts`)
+- `getCornerInfo()`, `getCenterInfo()`: 화면 해상도 비례 계산 — 4K에서도, HD에서도 적정 크기로 표시
+
+---
+
 ## [0.3.0] — 2026-05-27
 
 ### 추가

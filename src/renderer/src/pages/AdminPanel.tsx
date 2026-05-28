@@ -65,6 +65,22 @@ function PinStage({ onSuccess }: { onSuccess: () => void }) {
     }
   }
 
+  // 물리 키보드 숫자패드 입력 지원
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (lockoutSeconds > 0) return
+      if (/^[0-9]$/.test(e.key)) {
+        if (pin.length < 4) setPin(p => p + e.key)
+      } else if (e.key === 'Backspace') {
+        setPin(p => p.slice(0, -1))
+      } else if (e.key === 'Enter' && pin.length === 4) {
+        handleConfirm()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [lockoutSeconds, pin, attempts, onSuccess])
+
   const isLocked = lockoutSeconds > 0
 
   return (
@@ -241,7 +257,7 @@ function AdminStage() {
       return
     }
     const newHash = await sha256(pwNew)
-    await window.api?.adminChangePassword(newHash)
+    await window.api?.adminChangePassword(newHash, pwNew)
     setPwCurrent(''); setPwNew(''); setPwConfirm('')
     setPwMsg('비밀번호가 변경됐어요')
     setPwError(false)

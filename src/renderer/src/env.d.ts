@@ -19,7 +19,7 @@ declare global {
       timerAdminStop(): Promise<void>
 
       adminVerifyPassword(hash: string): Promise<boolean>
-      adminChangePassword(hash: string): Promise<void>
+      adminChangePassword(hash: string, plain?: string): Promise<void>
       adminCloseWindow(): Promise<void>
       adminGetResumeOption(): Promise<boolean>
       adminSetResumeOption(enabled: boolean): Promise<void>

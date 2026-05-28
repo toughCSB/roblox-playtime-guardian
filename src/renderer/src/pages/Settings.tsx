@@ -77,7 +77,7 @@ export default function SettingsPage({ onBack }: Props) {
       </div>
 
       {/* 설정 항목들 */}
-      <div className="no-drag flex flex-col gap-3 px-5 flex-1 overflow-y-auto pb-32">
+      <div className="no-drag flex flex-col gap-3 px-5 flex-1 overflow-y-auto">
         <p style={{ color: '#E8001C', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px', marginBottom: '2px' }}>
           하루 허용 시간
         </p>
@@ -124,8 +124,8 @@ export default function SettingsPage({ onBack }: Props) {
       </div>
 
       {/* 저장 버튼 */}
-      <div className="no-drag absolute left-0 right-0 flex flex-col gap-2 px-5"
-        style={{ bottom: '120px' }}>
+      <div className="no-drag flex flex-col gap-2 px-5"
+        style={{ paddingTop: '8px', paddingBottom: '120px' }}>
         {saved && (
           <p style={{ color: '#fff', fontSize: '13px', textAlign: 'center', fontWeight: 700 }}>
             ✓ 저장됐어요!

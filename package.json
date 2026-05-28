@@ -1,6 +1,6 @@
 {
   "name": "my-pact-for-my-future",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "자녀의 로블록스 시간을 관리하는 Electron 타이머 앱",
   "main": "out/main/main.js",
   "scripts": {
@@ -13,6 +13,7 @@
   "build": {
     "appId": "com.mypact.myfuture",
     "productName": "나의 약속",
+    "icon": "resources/icon.ico",
     "directories": {
       "output": "dist"
     },
@@ -20,21 +21,44 @@
       "out/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "resources"
+      }
+    ],
     "win": {
       "target": [
         {
-          "target": "portable",
-          "arch": ["x64"]
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
-      ]
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "include": "build/installer.nsh",
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "나의 약속",
+      "deleteAppDataOnUninstall": false,
+      "uninstallDisplayName": "나의 약속 (Pact)"
     },
     "mac": {
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
-      ]
+      ],
+      "icon": "resources/icon-256.png"
     }
   },
   "dependencies": {
@@ -47,7 +71,7 @@
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
-    "electron": "^31.0.0",
+    "electron": "^31.7.7",
     "electron-builder": "^25.0.0",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.47",

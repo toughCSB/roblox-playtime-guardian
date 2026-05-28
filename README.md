@@ -2,7 +2,7 @@
 
 > **자녀의 로블록스 게임 시간을 부모가 설정하고, 자녀 스스로 서약을 지키도록 돕는 Electron 데스크탑 타이머 앱**
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
 ---
 
@@ -29,6 +29,18 @@ MS Family Safety 같은 기존 자녀 보호 앱은 오류가 잦고, 자녀와�
 - ✅ 시간이 되면 로블록스를 자동 강제 종료
 - ✅ 재부팅으로 타이머 회피 불가 — 재시작 후 남은 시간 자동 복원
 - ✅ 부모만 아는 PIN으로 타이머 조정/중지/설정 변경
+- ✅ 작업 관리자에서 앱 강제 종료 불가 (HIGHEST 권한 Scheduled Task)
+- ✅ 제어판에서 앱 삭제 불가 — 언인스톨 시 부모 PIN 검증
+
+---
+
+## 스크린샷
+
+### 메인 화면 (대기 / 타이머 시작 전)
+
+![메인 화면](screenshots/main-screen.png)
+
+> 로블록스 테마 배경 · "나와의 서약" 타이틀 · 빨간 시작 버튼 · 하단 캐릭터 이미지
 
 ---
 
@@ -61,6 +73,7 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 
 - 3초마다 `tasklist`로 `RobloxPlayer.exe` 실행 여부 감지
 - 허용 시간대 내에서 감지되면 자동 시작 + 화면에 배너 표시
+- **허용 시간 외에 로블록스 실행 시 즉시 강제 종료** (타이머 시작 없이)
 - 로블록스 종료 시 타이머도 자동 중지, 대기 화면으로 복귀
 
 ### 🔒 종료 방지 + 트레이 상시 유지
@@ -70,6 +83,21 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 - 작업 표시줄 아이콘 없음 (`skipTaskbar: true`)
 - 트레이 우클릭 메뉴에 종료 옵션 없음
 - 트레이 단일 클릭 → 메인 창 표시
+
+### 🛑 작업 관리자 강제 종료 방지
+설치 시 Windows Scheduled Task를 HIGHEST 권한으로 등록합니다.
+
+- `schtasks /rl HIGHEST` — 표준 사용자 계정에서는 이 프로세스를 작업 관리자로 종료 불가
+- 로그온 시 자동 실행 (레지스트리 `Run` 키 대신 Scheduled Task 사용)
+- 앱 제거 시 Scheduled Task 자동 삭제
+
+### 🔐 앱 삭제 방지 (언인스톨러 PIN 잠금)
+제어판 → 앱 추가/제거에서 삭제를 시도하면 부모 PIN을 먼저 요구합니다.
+
+- 언인스톨러 시작 직전(`un.onInit`)에 PIN 입력 다이얼로그 표시
+- 틀린 PIN 또는 취소 시 파일 삭제 없이 완전 차단
+- 부모가 앱 내 PIN을 변경하면 언인스톨러 검증 PIN도 자동 동기화
+- 초기 언인스톨 PIN: `0000`
 
 ### 🔄 재부팅 후 타이머 자동 복원
 아이가 타이머를 피하기 위해 컴퓨터를 재시작하는 상황을 방지합니다.
@@ -93,17 +121,12 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 
 - 초기 비밀번호: `0000`
 - 5회 오입력 시 30초 잠금
+- 숫자 패드 클릭 + 물리 키보드(0–9 / Backspace / Enter) 모두 지원
 
 ### ⚙️ 설정 화면
 - 평일 / 주말 허용 시간 (분 단위)
 - 게임 시작 가능 시각 / 종료 시각 설정
 - 설정 저장 (`~/.mypact/settings.json`)
-
----
-
-## 스크린샷
-
-> 📸 스크린샷 추가 예정 (배포 후)
 
 ---
 
@@ -119,8 +142,8 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 | **패키지 매니저** | npm |
 | **배포 타겟** | Windows 11 (NSIS 인스톨러) |
 | **데이터 저장** | 로컬 JSON 파일 (`~/.mypact/`) |
-| **프로세스 제어** | Node.js `child_process` (taskkill) |
-| **보안** | SHA-256 비밀번호 해싱 (Web Crypto API) |
+| **프로세스 제어** | Node.js `child_process` (taskkill, schtasks) |
+| **보안** | SHA-256 비밀번호 해싱, NSIS 언인스톨러 PIN 잠금, HIGHEST 권한 Scheduled Task |
 
 ---
 
@@ -136,6 +159,9 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 └── timer-state.json    # 재부팅 복원용 타이머 상태 (실행 중에만 존재)
 ```
 
+레지스트리 (`HKLM\Software\MyPact`):
+- `UninstallPin` — 언인스톨러 PIN 검증용 (설치 시 기록, PIN 변경 시 동기화)
+
 ---
 
 ## 프로젝트 구조
@@ -147,27 +173,28 @@ roblox-playtime-guardian/
 ├── DEVLOG.md                 # 개발 일지
 ├── AI_CASE_STUDY.md          # AI 활용 사례 게시글
 ├── PRD/                      # 기획 문서
-└── electron-app/
-    ├── package.json          # v0.3.0
-    ├── resources/
-    │   ├── icon.ico          # Windows 앱 아이콘
-    │   ├── icon-256.png      # macOS 앱 아이콘
-    │   └── tray-icon.png     # 트레이 아이콘 (스톱워치)
-    └── src/
-        ├── main/
-        │   ├── main.ts       # 메인 프로세스 (트레이, 타이머, 창 관리)
-        │   ├── ipc.ts        # IPC 핸들러 (설정, 세션, 관리자)
-        │   └── fileStore.ts  # 로컬 JSON 파일 I/O
-        ├── preload/
-        │   └── index.ts      # Preload 스크립트
-        └── renderer/src/
-            ├── App.tsx       # 라우팅 (일반 / 관리자 창)
-            ├── index.css     # 글로벌 스타일
-            ├── env.d.ts      # window.api 타입 선언
-            └── pages/
-                ├── Timer.tsx      # 메인 타이머 + 오버레이
-                ├── Settings.tsx   # 설정 화면
-                └── AdminPanel.tsx # 관리자 PIN 패널
+├── build/
+│   └── installer.nsh         # NSIS 커스텀 매크로 (Scheduled Task, PIN 잠금)
+├── screenshots/              # README 스크린샷
+├── resources/
+│   ├── icon.ico              # Windows 앱 아이콘
+│   ├── icon-256.png          # macOS 앱 아이콘
+│   └── tray-icon.png         # 트레이 아이콘
+└── src/
+    ├── main/
+    │   ├── main.ts           # 메인 프로세스 (트레이, 타이머, 창 관리)
+    │   ├── ipc.ts            # IPC 핸들러 (설정, 세션, 관리자)
+    │   └── fileStore.ts      # 로컬 JSON 파일 I/O
+    ├── preload/
+    │   └── index.ts          # Preload 스크립트
+    └── renderer/src/
+        ├── App.tsx           # 라우팅 (일반 / 관리자 창)
+        ├── index.css         # 글로벌 스타일
+        ├── env.d.ts          # window.api 타입 선언
+        └── pages/
+            ├── Timer.tsx      # 메인 타이머 + 오버레이
+            ├── Settings.tsx   # 설정 화면
+            └── AdminPanel.tsx # 관리자 PIN 패널
 ```
 
 ---
@@ -180,7 +207,6 @@ roblox-playtime-guardian/
 ### 개발 모드 실행
 
 ```bash
-cd electron-app
 npm install
 npm run dev
 ```
@@ -190,11 +216,10 @@ npm run dev
 > **빌드 전 반드시 확인 후 진행**
 
 ```bash
-cd electron-app
 npm run package:win
 ```
 
-빌드 결과물: `electron-app/dist/` (`.exe` NSIS 인스톨러)
+빌드 결과물: `dist/` (`.exe` NSIS 인스톨러)
 
 ---
 
@@ -202,6 +227,7 @@ npm run package:win
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
+| **v0.3.1** | 2026-05-28 | 작업관리자 종료방지, 앱 삭제방지(PIN 잠금), HD 해상도 레이아웃 수정, 프로젝트 구조 통합 |
 | **v0.3.0** | 2026-05-27 | 관리자 PIN 패널, Roblox 자동 감지, 재부팅 복원, UI 테마 전면 교체 |
 | **v0.2.0** | 2025 | 강제 종료, 트레이 아이콘, NSIS 패키징, 깜빡임 수정 |
 | **v0.1.0** | 2025 | 최초 구현 (타이머, 경고, 설정, 세션 기록) |
@@ -215,6 +241,7 @@ npm run package:win
 - [x] **v0.1.0** — Electron 타이머 앱 (오버레이 위젯 + 경고 팝업 + 강제 종료)
 - [x] **v0.2.0** — 트레이 상주, 종료 방지, NSIS 패키징
 - [x] **v0.3.0** — 관리자 PIN 패널, Roblox 자동 감지, 재부팅 타이머 복원, UI 리디자인
+- [x] **v0.3.1** — 작업관리자 종료방지, 앱 삭제방지, HD 해상도 호환, 프로젝트 구조 통합
 - [ ] **v0.4.0** — 요일별 개별 시간 설정, 플레이 기록 화면
 - [ ] **v1.0.0** — 웹 대시보드 연동 (주간/월간 그래프)
 

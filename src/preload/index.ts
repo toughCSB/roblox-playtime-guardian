@@ -20,8 +20,8 @@ const api = {
 
   adminVerifyPassword: (hash: string): Promise<boolean> =>
     ipcRenderer.invoke('admin:verify-password', { hash }),
-  adminChangePassword: (hash: string): Promise<void> =>
-    ipcRenderer.invoke('admin:change-password', { hash }),
+  adminChangePassword: (hash: string, plain?: string): Promise<void> =>
+    ipcRenderer.invoke('admin:change-password', { hash, plain }),
   adminCloseWindow: (): Promise<void> => ipcRenderer.invoke('admin:close-window'),
   adminGetResumeOption: (): Promise<boolean> => ipcRenderer.invoke('admin:get-resume-option'),
   adminSetResumeOption: (enabled: boolean): Promise<void> =>

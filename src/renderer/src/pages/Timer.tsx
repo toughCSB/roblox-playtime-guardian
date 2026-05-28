@@ -177,16 +177,22 @@ export default function Timer({ onOpenSettings }: Props) {
     if (overlayMode === 'shutdown') {
       return (
         <div className="h-screen w-screen flex items-center justify-center select-none"
-          style={{ background: 'rgba(0,0,0,0.88)' }}>
-          <span style={{
-            fontFamily: 'system-ui, sans-serif',
-            fontSize: '20px', fontWeight: 700,
-            color: '#ff1744',
-            textShadow: '0 0 16px rgba(255,23,68,0.9)',
-            letterSpacing: '1px',
+          style={{ background: 'transparent' }}>
+          <div style={{
+            background: 'rgba(0,0,0,0.88)', borderRadius: '16px',
+            padding: '14px 28px',
+            display: 'flex', alignItems: 'center',
           }}>
-            🚫 게임 셧다운...
-          </span>
+            <span style={{
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: '20px', fontWeight: 700,
+              color: '#ff1744',
+              textShadow: '0 0 16px rgba(255,23,68,0.9)',
+              letterSpacing: '1px',
+            }}>
+              🚫 게임 셧다운...
+            </span>
+          </div>
         </div>
       )
     }
@@ -194,41 +200,53 @@ export default function Timer({ onOpenSettings }: Props) {
     if (overlayMode === 'center-countdown') {
       return (
         <div className="h-screen w-screen flex items-center justify-center select-none"
-          style={{ background: 'rgba(0,0,0,0.80)' }}>
-          <span style={{
-            fontFamily: "'DSEG7', 'Courier New', monospace",
-            fontSize: '64px', fontWeight: 'bold', letterSpacing: '4px',
-            color: '#ff1744',
-            textShadow: '0 0 24px rgba(255,23,68,0.9), 0 0 10px rgba(255,23,68,0.9)',
-            lineHeight: 1, userSelect: 'none',
+          style={{ background: 'transparent' }}>
+          <div style={{
+            background: 'rgba(0,0,0,0.85)', borderRadius: '16px',
+            padding: '12px 28px',
+            display: 'flex', alignItems: 'center',
           }}>
-            {formatTime(remainingSeconds)}
-          </span>
+            <span style={{
+              fontFamily: "'DSEG7', 'Courier New', monospace",
+              fontSize: '64px', fontWeight: 'bold', letterSpacing: '4px',
+              color: '#ff1744',
+              textShadow: '0 0 24px rgba(255,23,68,0.9), 0 0 10px rgba(255,23,68,0.9)',
+              lineHeight: 1, userSelect: 'none',
+            }}>
+              {formatTime(remainingSeconds)}
+            </span>
+          </div>
         </div>
       )
     }
 
     if (overlayMode === 'center-popup') {
       return (
-        <div className="h-screen w-screen flex flex-col items-center justify-center gap-3 select-none"
-          style={{ background: 'rgba(0,0,0,0.80)' }}>
-          {warningMessage && (
-            <span style={{
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: '17px', fontWeight: 700,
-              color: '#ff1744',
-              textShadow: '0 0 10px rgba(255,23,68,0.8)',
-              letterSpacing: '0.5px',
-            }}>{warningMessage}</span>
-          )}
-          <span style={{
-            fontFamily: "'DSEG7', 'Courier New', monospace",
-            fontSize: '48px', fontWeight: 'bold', letterSpacing: '4px',
-            color, textShadow: `0 0 20px ${glow}, 0 0 8px ${glow}`,
-            lineHeight: 1, userSelect: 'none',
+        <div className="h-screen w-screen flex items-center justify-center select-none"
+          style={{ background: 'transparent' }}>
+          <div style={{
+            background: 'rgba(0,0,0,0.85)', borderRadius: '16px',
+            padding: '14px 28px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
           }}>
-            {formatTime(remainingSeconds)}
-          </span>
+            {warningMessage && (
+              <span style={{
+                fontFamily: 'system-ui, sans-serif',
+                fontSize: '17px', fontWeight: 700,
+                color: '#ff1744',
+                textShadow: '0 0 10px rgba(255,23,68,0.8)',
+                letterSpacing: '0.5px',
+              }}>{warningMessage}</span>
+            )}
+            <span style={{
+              fontFamily: "'DSEG7', 'Courier New', monospace",
+              fontSize: '48px', fontWeight: 'bold', letterSpacing: '4px',
+              color, textShadow: `0 0 20px ${glow}, 0 0 8px ${glow}`,
+              lineHeight: 1, userSelect: 'none',
+            }}>
+              {formatTime(remainingSeconds)}
+            </span>
+          </div>
         </div>
       )
     }
@@ -238,10 +256,13 @@ export default function Timer({ onOpenSettings }: Props) {
       <div className="app-drag h-screen w-screen flex flex-col items-end justify-end select-none"
         style={{ cursor: 'move' }}>
         {warningMessage && (
-          <div style={{ background: 'rgba(0,0,0,0.55)', padding: '3px 8px', marginBottom: '3px' }}>
+          <div style={{
+            background: 'rgba(0,0,0,0.30)', padding: '1.5% 4%',
+            marginBottom: '2%', borderRadius: '5px 0 0 5px',
+          }}>
             <span style={{
               fontFamily: 'system-ui, sans-serif',
-              fontSize: '12px', fontWeight: 700,
+              fontSize: '5.5vw', fontWeight: 700,
               color: '#ff1744',
               textShadow: '0 0 8px rgba(255,23,68,0.7)',
               letterSpacing: '0.5px', userSelect: 'none',
@@ -249,12 +270,15 @@ export default function Timer({ onOpenSettings }: Props) {
           </div>
         )}
         <div style={{
-          background: 'rgba(0,0,0,0.18)', padding: '0 8px',
-          height: '34px', display: 'flex', alignItems: 'center',
+          background: 'rgba(0,0,0,0.30)',
+          padding: '0 4%',
+          height: '46%',
+          display: 'flex', alignItems: 'center',
+          borderRadius: '6px 0 0 6px',
         }}>
           <span style={{
             fontFamily: "'DSEG7', 'Courier New', monospace",
-            fontSize: '22px', fontWeight: 'bold', letterSpacing: '2px',
+            fontSize: '12vw', fontWeight: 'bold', letterSpacing: '0.06em',
             color, textShadow: `0 0 12px ${glow}, 0 0 5px ${glow}`,
             userSelect: 'none', lineHeight: 1,
           }}>
@@ -271,7 +295,6 @@ export default function Timer({ onOpenSettings }: Props) {
       style={{
         background: 'linear-gradient(180deg, #4FC3F7 0%, #0288D1 100%)',
         borderRadius: '12px',
-        position: 'relative',
       }}>
 
       {/* 자동 감지 배너 */}
@@ -285,8 +308,7 @@ export default function Timer({ onOpenSettings }: Props) {
       )}
 
       {/* 상단: 로블록스 헤더 */}
-      <div className="app-drag flex items-center justify-center gap-2 pt-7 pb-2">
-        {/* R 로고 */}
+      <div className="app-drag flex items-center justify-center gap-2 pt-5 pb-1" style={{ flexShrink: 0 }}>
         <div style={{
           width: 32, height: 32, borderRadius: '50%',
           background: '#E8001C',
@@ -306,7 +328,7 @@ export default function Timer({ onOpenSettings }: Props) {
       </div>
 
       {/* 타이틀 */}
-      <div className="app-drag text-center pt-1 pb-3">
+      <div className="app-drag text-center pt-1 pb-2" style={{ flexShrink: 0 }}>
         <h1 style={{
           fontFamily: "'Black Han Sans', sans-serif",
           fontSize: '40px',
@@ -316,10 +338,20 @@ export default function Timer({ onOpenSettings }: Props) {
         }}>
           나와의 서약
         </h1>
+        <p style={{
+          fontFamily: 'Georgia, serif',
+          fontSize: '13px',
+          fontStyle: 'italic',
+          color: 'rgba(255,255,255,0.75)',
+          letterSpacing: '0.5px',
+          margin: '3px 0 0 0',
+        }}>
+          My Pact for My Future
+        </p>
       </div>
 
       {/* 오늘 제한 정보 */}
-      <div className="no-drag flex items-center justify-center gap-2 mb-3">
+      <div className="no-drag flex items-center justify-center gap-2 mb-2" style={{ flexShrink: 0 }}>
         <span style={{
           background: 'rgba(255,255,255,0.25)',
           color: '#fff', fontSize: '13px', fontWeight: 700,
@@ -333,12 +365,12 @@ export default function Timer({ onOpenSettings }: Props) {
       </div>
 
       {/* 허용 시간 표시 카드 */}
-      <div className="no-drag flex justify-center mb-4">
+      <div className="no-drag flex justify-center mb-3" style={{ flexShrink: 0 }}>
         <div style={{
           background: 'rgba(255,255,255,0.22)',
           backdropFilter: 'blur(8px)',
           borderRadius: '16px',
-          padding: '14px 32px',
+          padding: '11px 28px',
           border: '1px solid rgba(255,255,255,0.4)',
           textAlign: 'center',
         }}>
@@ -359,21 +391,21 @@ export default function Timer({ onOpenSettings }: Props) {
       </div>
 
       {/* 시작 버튼 영역 */}
-      <div className="no-drag flex flex-col items-center gap-3 mb-4">
+      <div className="no-drag flex flex-col items-center gap-2 mb-2" style={{ flexShrink: 0 }}>
         {!isStartable ? (
           <>
             <button disabled style={{
               background: 'rgba(255,255,255,0.2)',
               color: 'rgba(255,255,255,0.5)',
               border: 'none', borderRadius: '14px',
-              padding: '14px 48px', fontSize: '18px', fontWeight: 900,
+              padding: '13px 48px', fontSize: '18px', fontWeight: 900,
               cursor: 'not-allowed', letterSpacing: '1px',
             }}>
               ▶ 게임 시작
             </button>
-            <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: 600 }}>
+            <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: 600, margin: 0 }}>
               {hour < displaySettings.allowedStartHour
-                ? `오후 ${displaySettings.allowedStartHour}시 이후에 시작할 수 있어`
+                ? `${displaySettings.allowedStartHour}시 이후에 시작할 수 있어`
                 : `오늘 게임 시간이 끝났어 (${displaySettings.allowedEndHour}시 이후)`}
             </p>
           </>
@@ -383,7 +415,7 @@ export default function Timer({ onOpenSettings }: Props) {
             onClick={() => handleStartTimer()}
             style={{
               border: 'none', borderRadius: '14px',
-              padding: '14px 48px', fontSize: '18px', fontWeight: 900,
+              padding: '13px 48px', fontSize: '18px', fontWeight: 900,
               color: '#fff', letterSpacing: '1px',
               cursor: 'pointer',
             }}
@@ -398,7 +430,7 @@ export default function Timer({ onOpenSettings }: Props) {
           style={{
             background: 'transparent',
             border: '1px solid rgba(255,255,255,0.4)',
-            borderRadius: '10px', padding: '6px 18px',
+            borderRadius: '10px', padding: '5px 18px',
             color: 'rgba(255,255,255,0.7)', fontSize: '12px',
             cursor: 'pointer',
           }}
@@ -408,8 +440,8 @@ export default function Timer({ onOpenSettings }: Props) {
       </div>
 
       {/* 하단: 허용 시간대 + 설정 */}
-      <div className="no-drag flex flex-col items-center gap-1 mb-4">
-        <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: '12px' }}>
+      <div className="no-drag flex flex-col items-center gap-1 pb-2" style={{ flexShrink: 0 }}>
+        <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: '12px', margin: 0 }}>
           {displaySettings.allowedStartHour}시 ~ {displaySettings.allowedEndHour}시
         </p>
         <button
@@ -424,10 +456,11 @@ export default function Timer({ onOpenSettings }: Props) {
         </button>
       </div>
 
-      {/* 로블록스 캐릭터 이미지 */}
+      {/* 로블록스 캐릭터 이미지 — flex-1으로 남은 공간 채움 (absolute 제거) */}
       <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0,
-        height: '164px', overflow: 'hidden',
+        flex: '1 1 0',
+        minHeight: 50,
+        overflow: 'hidden',
         pointerEvents: 'none',
       }}>
         <img
