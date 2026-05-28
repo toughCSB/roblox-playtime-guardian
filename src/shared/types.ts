@@ -26,6 +26,11 @@ export interface TimerState {
   pausedRemainingMs?: number  // 로블록스 종료로 일시정지 시 잔여 ms 스냅샷
 }
 
+export interface DailyUsage {
+  date: string       // YYYY-MM-DD
+  remainingMs: number  // 당일 남은 ms — 0이면 쿼터 소진
+}
+
 // SHA-256('0000')
 const DEFAULT_PASSWORD_HASH = '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0'
 

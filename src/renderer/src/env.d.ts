@@ -10,7 +10,7 @@ declare global {
       readSessions(): Promise<Session[]>
       appendSession(s: Omit<Session, 'id'>): Promise<void>
 
-      startTimer(limitMinutes: number): Promise<{ resumed: boolean; remainingSeconds: number }>
+      startTimer(limitMinutes: number): Promise<{ resumed: boolean; remainingSeconds: number; exhausted?: boolean }>
       stopTimer(): Promise<void>
       pauseTimer(): Promise<void>
       killRoblox(): Promise<void>
@@ -24,6 +24,8 @@ declare global {
       adminCloseWindow(): Promise<void>
       adminGetResumeOption(): Promise<boolean>
       adminSetResumeOption(enabled: boolean): Promise<void>
+
+      dailyGetRemaining(): Promise<{ remainingSeconds: number; exhausted: boolean; totalSeconds: number }>
 
       onTimerTick(cb: (d: { remainingSeconds: number }) => void): () => void
       onTimerWarning(cb: (d: { minutesLeft: number }) => void): () => void

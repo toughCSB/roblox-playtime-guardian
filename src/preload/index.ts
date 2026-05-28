@@ -7,7 +7,7 @@ const api = {
   readSessions: (): Promise<Session[]> => ipcRenderer.invoke('sessions:read'),
   appendSession: (s: Omit<Session, 'id'>): Promise<void> => ipcRenderer.invoke('sessions:append', s),
 
-  startTimer: (limitMinutes: number): Promise<{ resumed: boolean; remainingSeconds: number }> =>
+  startTimer: (limitMinutes: number): Promise<{ resumed: boolean; remainingSeconds: number; exhausted?: boolean }> =>
     ipcRenderer.invoke('timer:start', { limitMinutes }),
   stopTimer: (): Promise<void> => ipcRenderer.invoke('timer:stop'),
   pauseTimer: (): Promise<void> => ipcRenderer.invoke('timer:pause'),
@@ -27,6 +27,9 @@ const api = {
   adminGetResumeOption: (): Promise<boolean> => ipcRenderer.invoke('admin:get-resume-option'),
   adminSetResumeOption: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke('admin:set-resume-option', { enabled }),
+
+  dailyGetRemaining: (): Promise<{ remainingSeconds: number; exhausted: boolean; totalSeconds: number }> =>
+    ipcRenderer.invoke('daily:get-remaining'),
 
   onTimerTick: (cb: (d: { remainingSeconds: number }) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, d: { remainingSeconds: number }) => cb(d)

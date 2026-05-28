@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { createHash } from 'crypto'
 import { exec } from 'child_process'
-import { readSettings, writeSettings, readSessions, appendSession } from './fileStore'
+import { readSettings, writeSettings, readSessions, appendSession, readDailyUsage } from './fileStore'
 import type { Settings, Session } from '../shared/types'
 
 export function registerIpcHandlers(): void {
@@ -27,20 +27,17 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // 비밀번호 검증
   ipcMain.handle('admin:verify-password', async (_e, { hash }: { hash: string }) => {
     const settings = readSettings()
     return hash === settings.adminPasswordHash
   })
 
-  // 비밀번호 변경
   ipcMain.handle('admin:change-password', async (_e, { hash, plain }: { hash: string; plain?: string }) => {
     if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('invalid hash')
     const settings = readSettings()
     settings.adminPasswordHash = hash
     settings.updatedAt = new Date().toISOString()
     writeSettings(settings)
-    // NSIS 제거 PIN 레지스트리 동기화 (plain은 삭제 방지용)
     if (plain && process.platform === 'win32') {
       const safe = plain.replace(/['"\\&|;`<>]/g, '')
       exec(`reg add "HKLM\\Software\\MyPact" /v UninstallPin /t REG_SZ /d "${safe}" /f`,
@@ -48,12 +45,32 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // 재부팅 후 타이머 유지 설정
   ipcMain.handle('admin:set-resume-option', async (_e, { enabled }: { enabled: boolean }) => {
     const settings = readSettings()
     settings.resumeTimerOnRestart = enabled
     settings.updatedAt = new Date().toISOString()
     writeSettings(settings)
+  })
+
+  // 오늘 남은 플레이 시간 조회 — 렌더러 대기 화면 표시용
+  ipcMain.handle('daily:get-remaining', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const usage = readDailyUsage()
+    const settings = readSettings()
+    const dow = new Date().getDay()
+    const isWeekend = dow === 0 || dow === 6
+    const totalMinutes = isWeekend ? settings.weekendLimit : settings.weekdayLimit
+
+    if (!usage || usage.date !== today) {
+      return { remainingSeconds: totalMinutes * 60, exhausted: false, totalSeconds: totalMinutes * 60 }
+    }
+
+    const remainingMs = Math.max(0, usage.remainingMs)
+    return {
+      remainingSeconds: Math.ceil(remainingMs / 1000),
+      exhausted: usage.remainingMs <= 0,
+      totalSeconds: totalMinutes * 60,
+    }
   })
 }
 

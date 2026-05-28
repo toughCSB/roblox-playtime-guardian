@@ -3,7 +3,10 @@ import { join } from 'path'
 import { exec, spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { registerIpcHandlers } from './ipc'
-import { readSettings, writeTimerState, clearTimerState, readTimerState } from './fileStore'
+import {
+  readSettings, writeTimerState, clearTimerState, readTimerState,
+  readDailyUsage, writeDailyUsage,
+} from './fileStore'
 
 // 중복 실행 방지
 if (!app.requestSingleInstanceLock()) {
@@ -26,7 +29,6 @@ let trayClickTimer: ReturnType<typeof setTimeout> | null = null
 let robloxDetectInterval: ReturnType<typeof setInterval> | null = null
 let robloxRunning = false
 
-// 타이머 시작 시점 커서 위치 기준 모니터를 저장 (팝업/코너 이동 시 동일 모니터 유지)
 let timerDisplay: Electron.Display | null = null
 
 function getResourcesDir(): string {
@@ -46,23 +48,16 @@ function killRoblox(): void {
 }
 
 function pauseTimerInternals(): void {
-  if (timerInterval) {
-    clearInterval(timerInterval)
-    timerInterval = null
-  }
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
   timerStart = null
   timerLimitMs = null
   warnedMinutes.clear()
   inCenterMode = false
   timerDisplay = null
-  // clearTimerState() 미호출 — pausedRemainingMs 파일 보존
 }
 
 function stopTimerInternals(): void {
-  if (timerInterval) {
-    clearInterval(timerInterval)
-    timerInterval = null
-  }
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
   timerStart = null
   timerLimitMs = null
   warnedMinutes.clear()
@@ -71,25 +66,22 @@ function stopTimerInternals(): void {
   clearTimerState()
 }
 
-// 타이머가 표시될 모니터: 커서 위치 기준 (getPrimaryDisplay 대신 사용)
 function getActiveDisplay(): Electron.Display {
   if (timerDisplay) return timerDisplay
   const cursor = screen.getCursorScreenPoint()
   return screen.getDisplayNearestPoint(cursor)
 }
 
-// 화면 해상도에 비례한 코너 창 크기 계산
 function getCornerInfo(): { w: number; h: number; x: number; y: number } {
   const display = getActiveDisplay()
   const { x: wx, y: wy, width: ww } = display.workArea
-  // 1920 기준 200px, 해상도 비례 확대 (최대 360px)
   const scale = ww / 1920
   const w = Math.round(Math.min(360, Math.max(200, 200 * scale)))
   const h = Math.round(w * 0.42)
   return { w, h, x: wx + ww - w - 16, y: wy + 16 }
 }
 
-// 화면 해상도에 비례한 센터 창 크기 계산
+// 경고 팝업 위치: 화면 상단 30% 위치 (중앙 정렬, 화면 중심부 게임 캐릭터/마우스 미침범)
 function getCenterInfo(): { w: number; h: number; x: number; y: number } {
   const display = getActiveDisplay()
   const { x: wx, y: wy, width: ww, height: wh } = display.workArea
@@ -99,7 +91,7 @@ function getCenterInfo(): { w: number; h: number; x: number; y: number } {
   return {
     w, h,
     x: wx + Math.round((ww - w) / 2),
-    y: wy + Math.round((wh - h) / 2),
+    y: wy + Math.round(wh * 0.30),
   }
 }
 
@@ -143,11 +135,10 @@ function restoreWindow(win: BrowserWindow): void {
 function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?: number): void {
   stopTimerInternals()
 
-  // 타이머 시작 시점의 커서 위치로 모니터 확정
   const cursor = screen.getCursorScreenPoint()
   timerDisplay = screen.getDisplayNearestPoint(cursor)
 
-  const limitMs = limitMinutes * 60 * 1000
+  const limitMs = Math.round(limitMinutes * 60 * 1000)
   timerLimitMs = limitMs
 
   if (resumeRemainingMs !== undefined) {
@@ -215,6 +206,9 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
     }
 
     if (remaining <= 0) {
+      // 당일 쿼터 소진 마킹 (stopTimerInternals 전에 처리)
+      const today = new Date().toISOString().slice(0, 10)
+      writeDailyUsage({ date: today, remainingMs: 0 })
       stopTimerInternals()
       win.webContents.send('timer:mode', { mode: 'shutdown' })
       setTimeout(() => {
@@ -242,17 +236,27 @@ function tryResumeTimer(): boolean {
     return false
   }
 
-  // pausedRemainingMs가 있으면 일시정지 스냅샷 사용, 없으면 startTime 기준 계산
-  const remaining = state.pausedRemainingMs !== undefined
+  // 당일 쿼터 소진이면 복원하지 않음
+  const usage = readDailyUsage()
+  if (usage && usage.date === today && usage.remainingMs <= 0) {
+    clearTimerState()
+    return false
+  }
+
+  const stateRemaining = state.pausedRemainingMs !== undefined
     ? state.pausedRemainingMs
     : Math.max(0, state.limitMs - (Date.now() - state.startTime))
+
+  // daily-usage와 timer-state 중 작은 값 사용 (항상 실제 남은 시간이 기준)
+  const dailyRemaining = (usage && usage.date === today) ? usage.remainingMs : state.limitMs
+  const remaining = Math.min(stateRemaining, dailyRemaining)
 
   if (remaining <= 0) {
     clearTimerState()
     return false
   }
 
-  const limitMinutes = state.limitMs / 60000
+  const limitMinutes = Math.max(1, state.limitMs / 60000)
   startTimer(win, limitMinutes, remaining)
   win.webContents.send('timer:resumed', { remainingSeconds: Math.ceil(remaining / 1000) })
   return true
@@ -307,9 +311,7 @@ function openAdminWindow(): void {
     adminWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'admin' })
   }
 
-  adminWindow.on('closed', () => {
-    adminWindow = null
-  })
+  adminWindow.on('closed', () => { adminWindow = null })
 }
 
 function addTrayClick(count = 1): void {
@@ -337,9 +339,7 @@ function createTray(): void {
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
   tray = new Tray(icon)
   tray.setToolTip('Pact')
-
   tray.on('click', () => addTrayClick(1))
-  // Windows: 빠른 2번 클릭은 double-click 이벤트 1개로 오므로 +2로 계산
   tray.on('double-click', () => addTrayClick(2))
 }
 
@@ -353,14 +353,24 @@ function startRobloxDetection(): void {
 
       if (isRunning && !robloxRunning) {
         robloxRunning = true
-        // 허용 시간 외에는 main 프로세스에서 즉시 강제 종료
         const settings = readSettings()
         const hour = new Date().getHours()
+
+        // 허용 시간대 밖이면 즉시 킬
         if (hour < settings.allowedStartHour || hour >= settings.allowedEndHour) {
           killRoblox()
-        } else {
-          mainWindow?.webContents.send('roblox:detected')
+          return
         }
+
+        // 당일 쿼터 소진이면 즉시 킬
+        const today = new Date().toISOString().slice(0, 10)
+        const usage = readDailyUsage()
+        if (usage && usage.date === today && usage.remainingMs <= 0) {
+          killRoblox()
+          return
+        }
+
+        mainWindow?.webContents.send('roblox:detected')
       } else if (!isRunning && robloxRunning) {
         robloxRunning = false
         mainWindow?.webContents.send('roblox:closed')
@@ -375,7 +385,6 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 380,
     height: 620,
-    // resizable: false 제거 — frame:false라 사용자가 크기 조절 불가, setSize()는 정상 동작
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -395,21 +404,53 @@ function createWindow(): void {
     mainWindow?.hide()
   })
 
+  // ── 타이머 IPC ────────────────────────────────────────────────────────────
+
   ipcMain.handle('timer:start', async (_e, { limitMinutes }: { limitMinutes: number }) => {
-    if (!mainWindow) return { resumed: false, remainingSeconds: limitMinutes * 60 }
-    const today = new Date().toISOString().slice(0, 10)
-    const state = readTimerState()
-    if (state && state.date === today && state.pausedRemainingMs !== undefined && state.pausedRemainingMs > 0) {
-      // 일시정지 상태 복원 — resumeTimerOnRestart 설정과 무관하게 항상 재개
-      startTimer(mainWindow, limitMinutes, state.pausedRemainingMs)
-      const remainingSeconds = Math.ceil(state.pausedRemainingMs / 1000)
-      return { resumed: true, remainingSeconds }
+    if (!mainWindow) return { resumed: false, remainingSeconds: 0, exhausted: false }
+
+    // 입력 검증 — NaN/Infinity/음수 방어
+    const limitMins = Number(limitMinutes)
+    if (!isFinite(limitMins) || limitMins <= 0) {
+      return { resumed: false, remainingSeconds: 0, exhausted: false }
     }
-    startTimer(mainWindow, limitMinutes)
-    return { resumed: false, remainingSeconds: limitMinutes * 60 }
+
+    const today = new Date().toISOString().slice(0, 10)
+    const usage = readDailyUsage()
+
+    let dailyRemainingMs: number
+
+    if (usage && usage.date === today) {
+      if (usage.remainingMs <= 0) {
+        // 당일 쿼터 소진 — 로블록스 종료 후 거부
+        killRoblox()
+        return { resumed: false, remainingSeconds: 0, exhausted: true }
+      }
+      dailyRemainingMs = usage.remainingMs
+    } else {
+      // 새 날 또는 첫 실행 — 당일 쿼터 초기화
+      dailyRemainingMs = Math.round(limitMins * 60 * 1000)
+      writeDailyUsage({ date: today, remainingMs: dailyRemainingMs })
+    }
+
+    const fullMs = Math.round(limitMins * 60 * 1000)
+    const isResumed = dailyRemainingMs < fullMs
+    // 잔량이 전체보다 적으면 resume 모드, 같으면 신규 시작
+    startTimer(mainWindow, limitMins, isResumed ? dailyRemainingMs : undefined)
+
+    return {
+      resumed: isResumed,
+      remainingSeconds: Math.ceil(dailyRemainingMs / 1000),
+      exhausted: false,
+    }
   })
 
   ipcMain.handle('timer:stop', async () => {
+    if (timerStart !== null && timerLimitMs !== null) {
+      const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
+      const today = new Date().toISOString().slice(0, 10)
+      writeDailyUsage({ date: today, remainingMs })
+    }
     stopTimerInternals()
     hideToTray()
   })
@@ -417,8 +458,9 @@ function createWindow(): void {
   ipcMain.handle('timer:pause', async () => {
     if (timerStart !== null && timerLimitMs !== null) {
       const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
+      const today = new Date().toISOString().slice(0, 10)
+      writeDailyUsage({ date: today, remainingMs })
       if (remainingMs > 0) {
-        const today = new Date().toISOString().slice(0, 10)
         writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today, pausedRemainingMs: remainingMs })
       } else {
         clearTimerState()
@@ -440,14 +482,21 @@ function createWindow(): void {
   ipcMain.handle('timer:add-time', async (_e, { minutes }: { minutes: number }) => {
     if (timerStart === null || timerLimitMs === null) return
     timerLimitMs += minutes * 60 * 1000
+    const today = new Date().toISOString().slice(0, 10)
+    const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
+    writeDailyUsage({ date: today, remainingMs })
     const settings = readSettings()
-    if (settings.resumeTimerOnRestart && timerStart !== null) {
-      const today = new Date().toISOString().slice(0, 10)
+    if (settings.resumeTimerOnRestart) {
       writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today })
     }
   })
 
   ipcMain.handle('timer:admin-stop', async () => {
+    if (timerStart !== null && timerLimitMs !== null) {
+      const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
+      const today = new Date().toISOString().slice(0, 10)
+      writeDailyUsage({ date: today, remainingMs })
+    }
     stopTimerInternals()
     if (mainWindow) {
       restoreWindow(mainWindow)
@@ -455,13 +504,9 @@ function createWindow(): void {
     }
   })
 
-  ipcMain.handle('admin:close-window', async () => {
-    adminWindow?.close()
-  })
+  ipcMain.handle('admin:close-window', async () => { adminWindow?.close() })
 
-  ipcMain.handle('admin:get-resume-option', async () => {
-    return readSettings().resumeTimerOnRestart
-  })
+  ipcMain.handle('admin:get-resume-option', async () => readSettings().resumeTimerOnRestart)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -495,5 +540,5 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  // 트레이에서 계속 실행 — 종료하지 않음
+  // 트레이에서 계속 실행
 })

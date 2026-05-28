@@ -2,7 +2,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, unlinkSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
-import type { Settings, Session, TimerState } from '../shared/types'
+import type { Settings, Session, TimerState, DailyUsage } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 
 const MYPACT_DIR = join(homedir(), '.mypact')
@@ -10,9 +10,18 @@ const SETTINGS_PATH = join(MYPACT_DIR, 'settings.json')
 const SETTINGS_BAK_PATH = join(MYPACT_DIR, 'settings.json.bak')
 const SESSIONS_PATH = join(MYPACT_DIR, 'sessions.json')
 const TIMER_STATE_PATH = join(MYPACT_DIR, 'timer-state.json')
+const DAILY_USAGE_PATH = join(MYPACT_DIR, 'daily-usage.json')
+
+const MAX_DAILY_MS = 24 * 60 * 60 * 1000
 
 function ensureDir(): void {
   mkdirSync(MYPACT_DIR, { recursive: true })
+}
+
+function safeInt(val: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(val)
+  if (!isFinite(n) || n < min || n > max) return fallback
+  return Math.round(n)
 }
 
 export function readSettings(): Settings {
@@ -20,7 +29,19 @@ export function readSettings(): Settings {
   try {
     const raw = readFileSync(SETTINGS_PATH, 'utf-8')
     const parsed = JSON.parse(raw) as Partial<Settings>
-    return { ...DEFAULT_SETTINGS, ...parsed }
+    const merged = { ...DEFAULT_SETTINGS, ...parsed }
+    // 수치 필드 전체 검증 — NaN/Infinity/범위 초과 시 기본값으로 교체
+    merged.weekdayLimit     = safeInt(merged.weekdayLimit,     DEFAULT_SETTINGS.weekdayLimit,     1, 480)
+    merged.weekendLimit     = safeInt(merged.weekendLimit,     DEFAULT_SETTINGS.weekendLimit,     1, 480)
+    merged.allowedStartHour = safeInt(merged.allowedStartHour, DEFAULT_SETTINGS.allowedStartHour, 0,  23)
+    merged.allowedEndHour   = safeInt(merged.allowedEndHour,   DEFAULT_SETTINGS.allowedEndHour,   0,  23)
+    if (typeof merged.adminPasswordHash !== 'string' || merged.adminPasswordHash.length !== 64) {
+      merged.adminPasswordHash = DEFAULT_SETTINGS.adminPasswordHash
+    }
+    if (typeof merged.resumeTimerOnRestart !== 'boolean') {
+      merged.resumeTimerOnRestart = DEFAULT_SETTINGS.resumeTimerOnRestart
+    }
+    return merged
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -62,7 +83,16 @@ export function appendSession(sessionData: Omit<Session, 'id'>): void {
 export function readTimerState(): TimerState | null {
   try {
     const raw = readFileSync(TIMER_STATE_PATH, 'utf-8')
-    return JSON.parse(raw) as TimerState
+    const parsed = JSON.parse(raw) as TimerState
+    if (!isFinite(parsed.startTime) || !isFinite(parsed.limitMs) ||
+        parsed.limitMs <= 0 || parsed.limitMs > MAX_DAILY_MS) return null
+    if (parsed.pausedRemainingMs !== undefined) {
+      if (!isFinite(parsed.pausedRemainingMs) ||
+          parsed.pausedRemainingMs < 0 || parsed.pausedRemainingMs > MAX_DAILY_MS) {
+        delete parsed.pausedRemainingMs
+      }
+    }
+    return parsed
   } catch {
     return null
   }
@@ -76,7 +106,28 @@ export function writeTimerState(state: TimerState): void {
 export function clearTimerState(): void {
   try {
     if (existsSync(TIMER_STATE_PATH)) unlinkSync(TIMER_STATE_PATH)
+  } catch { /* ignore */ }
+}
+
+export function readDailyUsage(): DailyUsage | null {
+  try {
+    const raw = readFileSync(DAILY_USAGE_PATH, 'utf-8')
+    const parsed = JSON.parse(raw) as DailyUsage
+    if (typeof parsed.date !== 'string' || parsed.date.length !== 10) return null
+    if (!isFinite(parsed.remainingMs) || parsed.remainingMs < 0) return null
+    return { date: parsed.date, remainingMs: Math.min(parsed.remainingMs, MAX_DAILY_MS) }
   } catch {
-    // 무시
+    return null
   }
+}
+
+export function writeDailyUsage(usage: DailyUsage): void {
+  ensureDir()
+  writeFileSync(DAILY_USAGE_PATH, JSON.stringify(usage), 'utf-8')
+}
+
+export function clearDailyUsage(): void {
+  try {
+    if (existsSync(DAILY_USAGE_PATH)) unlinkSync(DAILY_USAGE_PATH)
+  } catch { /* ignore */ }
 }

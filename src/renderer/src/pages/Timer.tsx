@@ -13,13 +13,17 @@ function isWeekend(date: Date): boolean {
 }
 
 function formatLimitDisplay(minutes: number): string {
-  return `${String(minutes).padStart(2, '0')}:00`
+  if (!isFinite(minutes) || minutes < 0) return '--:--'
+  const m = Math.floor(minutes)
+  return `${String(m).padStart(2, '0')}:00`
 }
 
 function formatTime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
+  if (!isFinite(seconds) || seconds < 0) return '--:--'
+  const s = Math.round(seconds)
+  const hours = Math.floor(s / 3600)
+  const minutes = Math.floor((s % 3600) / 60)
+  const secs = s % 60
   if (hours > 0) {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
   }
@@ -27,7 +31,8 @@ function formatTime(seconds: number): string {
 }
 
 function getTodayAllowedMinutes(settings: Settings): number {
-  return isWeekend(new Date()) ? settings.weekendLimit : settings.weekdayLimit
+  const limit = isWeekend(new Date()) ? settings.weekendLimit : settings.weekdayLimit
+  return isFinite(limit) && limit > 0 ? limit : DEFAULT_SETTINGS.weekdayLimit
 }
 
 function ledColors(remainingSeconds: number): { color: string; glow: string } {
@@ -46,22 +51,51 @@ export default function Timer({ onOpenSettings }: Props) {
   const [overlayMode, setOverlayMode] = useState<'corner' | 'center-popup' | 'center-countdown' | 'shutdown'>('corner')
   const [autoStartBanner, setAutoStartBanner] = useState(false)
 
+  // 당일 쿼터 상태
+  const [dailyRemainingSeconds, setDailyRemainingSeconds] = useState<number | null>(null)
+  const [dailyExhausted, setDailyExhausted] = useState(false)
+
   useEffect(() => {
     window.api?.readSettings().then(setSettings)
+    refreshDailyUsage()
   }, [])
+
+  function refreshDailyUsage() {
+    window.api?.dailyGetRemaining().then(r => {
+      setDailyRemainingSeconds(r.remainingSeconds)
+      setDailyExhausted(r.exhausted)
+    })
+  }
 
   const handleStartTimer = async (limitMinutes?: number) => {
     const api = window.api
     if (!api) return
     const s = settings ?? DEFAULT_SETTINGS
     const limit = limitMinutes ?? getTodayAllowedMinutes(s)
+    if (!isFinite(limit) || limit <= 0) return
+
     const now = new Date()
     setSessionStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
     setOverlayMode('corner')
+
     const result = await api.startTimer(limit)
+
+    // 당일 쿼터 소진으로 거부된 경우
+    if (result?.exhausted) {
+      setDailyExhausted(true)
+      setDailyRemainingSeconds(0)
+      setSessionStartTime('')
+      return
+    }
+
+    const rs = result?.remainingSeconds
+    if (!isFinite(rs) || rs <= 0) {
+      setSessionStartTime('')
+      return
+    }
+
     setIsRunning(true)
-    // 일시정지 복원이면 실제 잔여 시간, 신규 시작이면 전체 시간
-    setRemainingSeconds(result?.remainingSeconds ?? limit * 60)
+    setRemainingSeconds(rs)
   }
 
   // Roblox 자동 감지 → 타이머 자동 시작
@@ -81,11 +115,13 @@ export default function Timer({ onOpenSettings }: Props) {
     })
     const removeClosed = api.onRobloxClosed(() => {
       if (!isRunning) return
-      api.pauseTimer()  // 잔여 시간 파일에 저장 후 일시정지
+      api.pauseTimer()
       setIsRunning(false)
       setOverlayMode('corner')
       setRemainingSeconds(0)
       setSessionStartTime('')
+      // 일시정지 후 남은 쿼터 갱신
+      refreshDailyUsage()
     })
     return () => { removeDetected(); removeClosed() }
   }, [isRunning, settings])
@@ -95,6 +131,7 @@ export default function Timer({ onOpenSettings }: Props) {
     const api = window.api
     if (!api) return
     return api.onTimerResumed(({ remainingSeconds: rs }) => {
+      if (!isFinite(rs) || rs <= 0) return
       setIsRunning(true)
       setRemainingSeconds(rs)
       setOverlayMode('corner')
@@ -110,13 +147,17 @@ export default function Timer({ onOpenSettings }: Props) {
       setOverlayMode('corner')
       setRemainingSeconds(0)
       setSessionStartTime('')
+      // 관리자가 추가 시간을 줬을 수도 있으므로 쿼터 재조회
+      refreshDailyUsage()
     })
   }, [])
 
   useEffect(() => {
     const api = window.api
     if (!isRunning || !api) return
-    return api.onTimerTick(({ remainingSeconds: rs }) => setRemainingSeconds(rs))
+    return api.onTimerTick(({ remainingSeconds: rs }) => {
+      if (isFinite(rs)) setRemainingSeconds(rs)
+    })
   }, [isRunning])
 
   useEffect(() => {
@@ -135,6 +176,9 @@ export default function Timer({ onOpenSettings }: Props) {
       setIsRunning(false)
       setOverlayMode('corner')
       setWarningMessage(null)
+      setDailyExhausted(true)
+      setDailyRemainingSeconds(0)
+
       if (settings && sessionStartTime) {
         const now = new Date()
         const endTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
@@ -174,6 +218,11 @@ export default function Timer({ onOpenSettings }: Props) {
   const now = new Date()
   const hour = now.getHours()
   const isStartable = hour >= displaySettings.allowedStartHour && hour < displaySettings.allowedEndHour
+
+  // 표시할 남은 시간 (분 단위)
+  const displayRemainingSeconds = dailyRemainingSeconds ?? (todayLimitMinutes * 60)
+  const displayRemainingMinutes = Math.ceil(displayRemainingSeconds / 60)
+  const canStart = isStartable && !dailyExhausted
 
   // ── 타이머 실행 중: 오버레이 모드들 ─────────────────────────────────────
   if (isRunning) {
@@ -357,7 +406,7 @@ export default function Timer({ onOpenSettings }: Props) {
         </p>
       </div>
 
-      {/* 오늘 제한 정보 */}
+      {/* 오늘 정보 뱃지 */}
       <div className="no-drag flex items-center justify-center gap-2 mb-2" style={{ flexShrink: 0 }}>
         <span style={{
           background: 'rgba(255,255,255,0.25)',
@@ -371,35 +420,40 @@ export default function Timer({ onOpenSettings }: Props) {
         }}>하루 {todayLimitMinutes}분</span>
       </div>
 
-      {/* 허용 시간 표시 카드 */}
+      {/* 오늘 남은 시간 카드 */}
       <div className="no-drag flex justify-center mb-3" style={{ flexShrink: 0 }}>
         <div style={{
-          background: 'rgba(255,255,255,0.22)',
+          background: dailyExhausted ? 'rgba(255,23,68,0.18)' : 'rgba(255,255,255,0.22)',
           backdropFilter: 'blur(8px)',
           borderRadius: '16px',
           padding: '11px 28px',
-          border: '1px solid rgba(255,255,255,0.4)',
+          border: dailyExhausted ? '1px solid rgba(255,23,68,0.5)' : '1px solid rgba(255,255,255,0.4)',
           textAlign: 'center',
         }}>
-          <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px', marginBottom: '4px', letterSpacing: '1px', fontWeight: 600 }}>
-            오늘 허용 시간
+          <p style={{
+            color: dailyExhausted ? '#ff8a80' : 'rgba(255,255,255,0.8)',
+            fontSize: '11px', marginBottom: '4px', letterSpacing: '1px', fontWeight: 600,
+          }}>
+            {dailyExhausted ? '오늘 게임 시간 소진 ✋' : '오늘 남은 시간'}
           </p>
           <div style={{
             fontFamily: "'DSEG7', 'Courier New', monospace",
             fontSize: '42px', fontWeight: 'bold',
-            color: '#fff',
-            textShadow: '0 0 20px rgba(255,255,255,0.6)',
+            color: dailyExhausted ? '#ff5252' : '#fff',
+            textShadow: dailyExhausted
+              ? '0 0 20px rgba(255,82,82,0.6)'
+              : '0 0 20px rgba(255,255,255,0.6)',
             letterSpacing: '3px',
             lineHeight: 1,
           }}>
-            {formatLimitDisplay(todayLimitMinutes)}
+            {formatLimitDisplay(displayRemainingMinutes)}
           </div>
         </div>
       </div>
 
       {/* 시작 버튼 영역 */}
       <div className="no-drag flex flex-col items-center gap-2 mb-2" style={{ flexShrink: 0 }}>
-        {!isStartable ? (
+        {!canStart ? (
           <>
             <button disabled style={{
               background: 'rgba(255,255,255,0.2)',
@@ -411,9 +465,11 @@ export default function Timer({ onOpenSettings }: Props) {
               ▶ 게임 시작
             </button>
             <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: 600, margin: 0 }}>
-              {hour < displaySettings.allowedStartHour
-                ? `${displaySettings.allowedStartHour}시 이후에 시작할 수 있어`
-                : `오늘 게임 시간이 끝났어 (${displaySettings.allowedEndHour}시 이후)`}
+              {dailyExhausted
+                ? '오늘 게임 시간을 모두 썼어 😊'
+                : hour < displaySettings.allowedStartHour
+                  ? `${displaySettings.allowedStartHour}시 이후에 시작할 수 있어`
+                  : `오늘 게임 시간이 끝났어 (${displaySettings.allowedEndHour}시 이후)`}
             </p>
           </>
         ) : (
@@ -431,19 +487,21 @@ export default function Timer({ onOpenSettings }: Props) {
           </button>
         )}
 
-        <button
-          className="no-drag"
-          onClick={() => handleStartTimer(2)}
-          style={{
-            background: 'transparent',
-            border: '1px solid rgba(255,255,255,0.4)',
-            borderRadius: '10px', padding: '5px 18px',
-            color: 'rgba(255,255,255,0.7)', fontSize: '12px',
-            cursor: 'pointer',
-          }}
-        >
-          🧪 테스트 (2분)
-        </button>
+        {!dailyExhausted && (
+          <button
+            className="no-drag"
+            onClick={() => handleStartTimer(2)}
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.4)',
+              borderRadius: '10px', padding: '5px 18px',
+              color: 'rgba(255,255,255,0.7)', fontSize: '12px',
+              cursor: 'pointer',
+            }}
+          >
+            🧪 테스트 (2분)
+          </button>
+        )}
       </div>
 
       {/* 하단: 허용 시간대 + 설정 */}
@@ -469,21 +527,12 @@ export default function Timer({ onOpenSettings }: Props) {
         </button>
       </div>
 
-      {/* 로블록스 캐릭터 이미지 — flex-1으로 남은 공간 채움 (absolute 제거) */}
-      <div style={{
-        flex: '1 1 0',
-        minHeight: 50,
-        overflow: 'hidden',
-        pointerEvents: 'none',
-      }}>
+      {/* 로블록스 캐릭터 이미지 */}
+      <div style={{ flex: '1 1 0', minHeight: 50, overflow: 'hidden', pointerEvents: 'none' }}>
         <img
           src={robloxCharacters}
           alt=""
-          style={{
-            width: '100%', height: '100%',
-            objectFit: 'cover', objectPosition: 'top',
-            opacity: 0.9,
-          }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', opacity: 0.9 }}
         />
       </div>
     </div>
