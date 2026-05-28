@@ -12,7 +12,7 @@
   ; 로그온 시 HIGHEST 권한으로 앱 실행 (표준 사용자가 작업 관리자로 종료 불가)
   ExecWait 'schtasks /create /tn "MyPactForMyFuture" /tr "\"$INSTDIR\My Pact for My Future.exe\"" /sc onlogon /rl HIGHEST /delay 0000:30 /f'
   ; 워치독: 1분마다 앱 실행 여부 확인 → 꺼져 있으면 재시작 (표준 사용자는 HIGHEST 프로세스 종료 불가)
-  ExecWait 'schtasks /create /tn "PactWatchdog" /tr "powershell.exe -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"$INSTDIR\resources\watchdog.ps1\"" /sc MINUTE /mo 1 /rl HIGHEST /f'
+  ExecWait 'schtasks /create /tn "PactWatchdog" /tr "powershell.exe -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"$INSTDIR\resources\resources\watchdog.ps1\"" /sc MINUTE /mo 1 /rl HIGHEST /f'
   ; 초기 제거 PIN 레지스트리 기록 (기본값: 0000)
   WriteRegStr HKLM "Software\MyPact" "UninstallPin" "0000"
 !macroend
