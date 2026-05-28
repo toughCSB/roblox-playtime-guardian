@@ -12,6 +12,10 @@ function isWeekend(date: Date): boolean {
   return day === 0 || day === 6
 }
 
+function formatLimitDisplay(minutes: number): string {
+  return `${String(minutes).padStart(2, '0')}:00`
+}
+
 function formatTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
@@ -339,12 +343,14 @@ export default function Timer({ onOpenSettings }: Props) {
           나와의 서약
         </h1>
         <p style={{
-          fontFamily: 'Georgia, serif',
-          fontSize: '13px',
-          fontStyle: 'italic',
-          color: 'rgba(255,255,255,0.75)',
-          letterSpacing: '0.5px',
-          margin: '3px 0 0 0',
+          fontFamily: "'Impact', 'Arial Black', sans-serif",
+          fontSize: '18px',
+          fontWeight: 'normal',
+          color: '#FFE500',
+          letterSpacing: '2px',
+          textShadow: '0 0 12px rgba(255,229,0,0.7), 0 1px 3px rgba(0,0,0,0.5)',
+          margin: '4px 0 0 0',
+          textTransform: 'uppercase',
         }}>
           My Pact for My Future
         </p>
@@ -385,7 +391,7 @@ export default function Timer({ onOpenSettings }: Props) {
             letterSpacing: '3px',
             lineHeight: 1,
           }}>
-            {formatTime(todayLimitMinutes * 60)}
+            {formatLimitDisplay(todayLimitMinutes)}
           </div>
         </div>
       </div>
@@ -447,9 +453,15 @@ export default function Timer({ onOpenSettings }: Props) {
         <button
           onClick={onOpenSettings}
           style={{
-            background: 'transparent', border: 'none',
-            color: 'rgba(255,255,255,0.8)', fontSize: '13px',
-            cursor: 'pointer', fontWeight: 600,
+            background: 'rgba(255,255,255,0.18)',
+            border: '1.5px solid rgba(255,255,255,0.55)',
+            borderRadius: '10px',
+            color: '#fff',
+            fontSize: '15px',
+            fontWeight: 700,
+            padding: '7px 22px',
+            cursor: 'pointer',
+            letterSpacing: '0.5px',
           }}
         >
           ⚙️ 설정 변경

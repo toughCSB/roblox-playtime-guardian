@@ -36,23 +36,23 @@ MS Family Safety 같은 기존 자녀 보호 앱은 오류가 잦고, 자녀와�
 
 ## 스크린샷
 
-### 메인 화면 (대기 / 타이머 시작 전)
+### 메인 화면 · 설정 화면
 
-![메인 화면](screenshots/main-screen.png)
+| 대기 화면 | 설정 화면 |
+|:-:|:-:|
+| <img src="screenshots/main-screen.png" width="350"> | <img src="screenshots/settings-screen.png" width="350"> |
 
-> 로블록스 테마 배경 · "나와의 서약" 타이틀 · 빨간 시작 버튼 · 하단 캐릭터 이미지
-
-### ⚙️ 설정 화면
-
-![설정 화면](screenshots/settings-screen.png)
-
-> 평일/주말 허용 시간 · 게임 시작 가능 시각 · 종료 시각 설정
+> 로블록스 테마 배경 · "나와의 서약" 타이틀 · 빨간 시작 버튼 | 평일/주말 허용 시간 · 시작·종료 시각 설정
 
 ### 🕹️ 타이머 오버레이 — 시간대별 색상
 
-| 초록 (5분 초과) | 노랑 (5분 이하) | 주황 (3분 이하) | 빨강 (1분 이하) |
-|:-:|:-:|:-:|:-:|
-| ![green](screenshots/timer-green.png) | ![yellow](screenshots/timer-yellow.png) | ![orange](screenshots/timer-orange.png) | ![red](screenshots/timer-red.png) |
+| 초록 (5분 초과) | 노랑 (5분 이하) |
+|:-:|:-:|
+| <img src="screenshots/timer-green.png" width="430"> | <img src="screenshots/timer-yellow.png" width="430"> |
+
+| 주황 (3분 이하) | 빨강 (1분 이하) |
+|:-:|:-:|
+| <img src="screenshots/timer-orange.png" width="430"> | <img src="screenshots/timer-red.png" width="430"> |
 
 > 우측 상단 코너에 반투명 오버레이로 표시 · DSEG7 전자시계 폰트
 
@@ -60,7 +60,7 @@ MS Family Safety 같은 기존 자녀 보호 앱은 오류가 잦고, 자녀와�
 
 | 경고 메시지 (5분 전) | 최종 카운트다운 (10초) |
 |:-:|:-:|
-| ![warning](screenshots/timer-warning.png) | ![countdown](screenshots/timer-countdown.png) |
+| <img src="screenshots/timer-warning.png" width="430"> | <img src="screenshots/timer-countdown.png" width="430"> |
 
 > 경고 시 타이머가 화면 중앙으로 이동해 메시지 표시 후 코너로 복귀 · 10초부터는 중앙 유지
 

@@ -2,7 +2,7 @@
 
 ; Pact 앱 NSIS 커스텀 매크로
 ; 설치 시: 관리자 권한 Scheduled Task 등록 + 제거 PIN 레지스트리 기록
-; 제거 시: un.onInit에서 PIN 검증 (틀리면 Abort) → customUnInstall에서 정리
+; 제거 시: customUnInit에서 PIN 검증 (틀리면 Abort) → customUnInstall에서 정리
 
 !macro customInstall
   ; 기존 레지스트리 자동 실행 항목 제거 (Scheduled Task로 대체)
@@ -14,8 +14,9 @@
   WriteRegStr HKLM "Software\MyPact" "UninstallPin" "0000"
 !macroend
 
-; 제거 시작 전 PIN 검증 — 여기서 Abort하면 파일 삭제 전에 완전 취소됨
-Function un.onInit
+; 제거 시작 전 PIN 검증 — electron-builder un.onInit 내부에서 customUnInit 호출됨
+; 여기서 Abort하면 파일 삭제 전에 완전 취소됨
+!macro customUnInit
   ReadRegStr $R5 HKLM "Software\MyPact" "UninstallPin"
   ${If} $R5 != ""
     ; 임시 PowerShell 스크립트 생성 (VB InputBox로 PIN 입력창 표시)
@@ -43,7 +44,7 @@ Function un.onInit
       Abort
     ${EndIf}
   ${EndIf}
-FunctionEnd
+!macroend
 
 !macro customUnInstall
   ExecWait 'schtasks /delete /tn "MyPactForMyFuture" /f'

@@ -29,10 +29,10 @@ export interface TimerState {
 const DEFAULT_PASSWORD_HASH = '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0'
 
 export const DEFAULT_SETTINGS: Settings = {
-  weekdayLimit: 30,
+  weekdayLimit: 60,
   weekendLimit: 60,
   allowedStartHour: 16,
-  allowedEndHour: 21,
+  allowedEndHour: 22,
   adminPasswordHash: DEFAULT_PASSWORD_HASH,
   resumeTimerOnRestart: true,
   updatedAt: new Date().toISOString(),
