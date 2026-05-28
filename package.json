@@ -12,7 +12,7 @@
   },
   "build": {
     "appId": "com.mypact.myfuture",
-    "productName": "나의 약속",
+    "productName": "My Pact for My Future",
     "icon": "resources/icon.ico",
     "directories": {
       "output": "dist"
@@ -44,9 +44,9 @@
       "include": "build/installer.nsh",
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "shortcutName": "나의 약속",
+      "shortcutName": "My Pact for My Future",
       "deleteAppDataOnUninstall": false,
-      "uninstallDisplayName": "나의 약속 (Pact)"
+      "uninstallDisplayName": "My Pact for My Future"
     },
     "mac": {
       "target": [
