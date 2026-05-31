@@ -1,12 +1,16 @@
 import { app, BrowserWindow, ipcMain, screen, Tray, nativeImage } from 'electron'
 import { join } from 'path'
-import { exec, spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { exec, execFileSync } from 'child_process'
+import { mkdirSync, writeFileSync } from 'fs'
 import { registerIpcHandlers } from './ipc'
+import { requireAdminSession } from './adminAuth'
 import {
   readSettings, writeTimerState, clearTimerState, readTimerState,
-  readDailyUsage, writeDailyUsage,
+  readDailyUsage, writeDailyUsage, appendSession,
 } from './fileStore'
+import { isHourAllowed } from '../shared/policy'
+import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
+import type { DailyUsage, Session, TimerState } from '../shared/types'
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -15,20 +19,92 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow: BrowserWindow | null = null
 let adminWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let allowQuit = false
 
 let timerStart: number | null = null
 let timerLimitMs: number | null = null
+let timerSessionStartTime = ''
+let timerLimitAtSession = 0
 let timerInterval: ReturnType<typeof setInterval> | null = null
 const warnedMinutes = new Set<number>()
 let inCenterMode = false
+let timerUiMode: 'corner' | 'center-popup' | 'center-countdown' | 'shutdown' = 'corner'
 
 let trayClicks: number[] = []
 let trayClickTimer: ReturnType<typeof setTimeout> | null = null
 
 let robloxDetectInterval: ReturnType<typeof setInterval> | null = null
 let robloxRunning = false
+let lastRobloxBlockedReason = ''
 
 let timerDisplay: Electron.Display | null = null
+let volatileDailyUsage: DailyUsage | null = null
+const startHidden = process.argv.includes('--start-hidden')
+let robloxBaselineCaptured = false
+const COMMON_APP_DATA_DIR = process.platform === 'win32' ? 'C:\\ProgramData' : app.getPath('userData')
+const WATCHDOG_DISABLED_PATH = join(COMMON_APP_DATA_DIR, 'MyPact', 'watchdog-disabled.flag')
+
+function getDailyUsage(): DailyUsage | null {
+  if (volatileDailyUsage) {
+    if (volatileDailyUsage.date === getLocalDateString()) return volatileDailyUsage
+    volatileDailyUsage = null
+  }
+  return readDailyUsage()
+}
+
+function safeWriteTimerState(state: TimerState): void {
+  try {
+    writeTimerState(state)
+  } catch (err) {
+    console.error('timer-state write failed; continuing enforcement in memory', err)
+  }
+}
+
+function safeClearTimerState(): void {
+  try {
+    clearTimerState()
+  } catch (err) {
+    console.error('timer-state clear failed', err)
+  }
+}
+
+function safeWriteDailyUsage(usage: DailyUsage): void {
+  volatileDailyUsage = usage
+  try {
+    writeDailyUsage(usage)
+  } catch (err) {
+    console.error('daily-usage write failed; continuing enforcement in memory', err)
+  }
+}
+
+function safeAppendSession(session: Omit<Session, 'id'>): void {
+  try {
+    appendSession(session)
+  } catch (err) {
+    console.error('session append failed; continuing enforcement', err)
+  }
+}
+
+function disableWatchdog(): void {
+  try {
+    mkdirSync(join(COMMON_APP_DATA_DIR, 'MyPact'), { recursive: true })
+    writeFileSync(WATCHDOG_DISABLED_PATH, new Date().toISOString(), 'utf-8')
+  } catch (err) {
+    console.error('watchdog disable flag write failed', err)
+  }
+}
+
+function stopWatchdogProcesses(): void {
+  if (process.platform !== 'win32') return
+  exec('schtasks /delete /tn "MyPact" /f', { windowsHide: true })
+  exec('schtasks /delete /tn "MyPactForMyFuture" /f', { windowsHide: true })
+  exec('schtasks /delete /tn "PactWatchdog" /f', { windowsHide: true })
+  exec('reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v MyPact /f', { windowsHide: true })
+  exec('reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v MyPactForMyFuture /f', { windowsHide: true })
+  exec('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v MyPact /f', { windowsHide: true })
+  exec('taskkill /F /IM powershell.exe /FI "WINDOWTITLE eq MyPactWatchdog" /T', { windowsHide: true })
+  exec('powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'powershell.exe\' -or $_.Name -eq \'wscript.exe\') -and ($_.CommandLine -like \'*watch-loop.ps1*\' -or $_.CommandLine -like \'*start-watch-loop.vbs*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"', { windowsHide: true })
+}
 
 function getResourcesDir(): string {
   return app.isPackaged
@@ -36,13 +112,44 @@ function getResourcesDir(): string {
     : join(process.cwd(), 'resources')
 }
 
-function killRoblox(): void {
+function getLocalDateString(date = new Date()): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function getLocalTimeString(date = new Date()): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function isAllowedHour(): boolean {
+  const settings = readSettings()
+  const hour = new Date().getHours()
+  return isHourAllowed(hour, settings.allowedStartHour, settings.allowedEndHour)
+}
+
+function killRoblox(retries = 2): void {
   if (process.platform === 'win32') {
-    exec('taskkill /F /IM RobloxPlayer.exe', { windowsHide: true }, (err) => {
-      if (err) exec('taskkill /F /IM RobloxPlayerBeta.exe', { windowsHide: true })
-    })
+    for (const imageName of ['RobloxPlayer.exe', 'RobloxPlayerBeta.exe']) {
+      exec(`taskkill /F /IM ${imageName}`, { windowsHide: true })
+    }
+    if (retries > 0) setTimeout(() => killRoblox(retries - 1), 1500)
   } else if (process.platform === 'darwin') {
     exec('pkill -x "Roblox"')
+  }
+}
+
+function isRobloxProcessRunning(): boolean {
+  if (process.platform !== 'win32') return false
+  try {
+    const stdout = execFileSync('tasklist.exe', ['/FO', 'CSV', '/NH'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+    return /RobloxPlayer(Beta)?\.exe/i.test(stdout)
+  } catch {
+    return false
   }
 }
 
@@ -58,7 +165,7 @@ function getTodaySessionCount(): { sessionsPerDay: number; perSessionMinutes: nu
 }
 
 function isSessionExhausted(today: string): boolean {
-  const usage = readDailyUsage()
+  const usage = getDailyUsage()
   if (!usage || usage.date !== today) return false
   const { sessionsPerDay } = getTodaySessionCount()
   return usage.sessionsCompleted >= sessionsPerDay && usage.currentSessionRemainingMs <= 0
@@ -68,8 +175,11 @@ function pauseTimerInternals(): void {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
   timerStart = null
   timerLimitMs = null
+  timerSessionStartTime = ''
+  timerLimitAtSession = 0
   warnedMinutes.clear()
   inCenterMode = false
+  timerUiMode = 'corner'
   timerDisplay = null
 }
 
@@ -77,10 +187,60 @@ function stopTimerInternals(): void {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
   timerStart = null
   timerLimitMs = null
+  timerSessionStartTime = ''
+  timerLimitAtSession = 0
   warnedMinutes.clear()
   inCenterMode = false
+  timerUiMode = 'corner'
   timerDisplay = null
-  clearTimerState()
+  safeClearTimerState()
+}
+
+function persistPausedTimer(): void {
+  if (timerStart === null || timerLimitMs === null) return
+  const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
+  const today = getLocalDateString()
+  const usage = getDailyUsage()
+  safeWriteDailyUsage({
+    date: today,
+    sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
+    currentSessionRemainingMs: remainingMs,
+  })
+  if (remainingMs > 0) {
+    safeWriteTimerState({
+      startTime: timerStart,
+      limitMs: timerLimitMs,
+      date: today,
+      pausedRemainingMs: remainingMs,
+      sessionStartTime: timerSessionStartTime,
+      limitAtSession: timerLimitAtSession,
+    })
+  } else {
+    safeClearTimerState()
+  }
+}
+
+function pauseActiveTimer(): void {
+  persistPausedTimer()
+  pauseTimerInternals()
+  hideToTray()
+}
+
+function startTimerForDetectedRoblox(): void {
+  if (!mainWindow || timerStart !== null) return
+  const today = getLocalDateString()
+  const { perSessionMinutes, sessionsPerDay } = getTodaySessionCount()
+  const usage = getDailyUsage()
+  const usageToday = usage && usage.date === today ? usage : null
+  if (usageToday && usageToday.currentSessionRemainingMs > 0) {
+    startTimer(mainWindow, perSessionMinutes, usageToday.currentSessionRemainingMs)
+    return
+  }
+  if ((usageToday?.sessionsCompleted ?? 0) >= sessionsPerDay) {
+    killRoblox()
+    return
+  }
+  startTimer(mainWindow, perSessionMinutes)
 }
 
 function getActiveDisplay(): Electron.Display {
@@ -119,11 +279,25 @@ function hideToTray(): void {
   }
 }
 
+function showRobloxBlocked(reason: 'outside-hours' | 'daily-exhausted'): void {
+  if (!mainWindow) return
+  const settings = readSettings()
+  const message = reason === 'outside-hours'
+    ? `지금은 Roblox 허용 시간이 아닙니다. (${settings.allowedStartHour}시 ~ ${settings.allowedEndHour}시)`
+    : '오늘 Roblox 게임 시간을 모두 사용했습니다.'
+  const key = `${reason}:${getLocalDateString()}:${new Date().getHours()}:${new Date().getMinutes()}`
+  if (lastRobloxBlockedReason === key) return
+  lastRobloxBlockedReason = key
+  restoreWindow(mainWindow)
+  mainWindow.webContents.send('roblox:blocked', { reason, message })
+}
+
 function moveToCenterPopup(win: BrowserWindow): void {
   win.hide()
   const { w, h, x, y } = getCenterInfo()
   win.setSize(w, h, false)
   win.setPosition(x, y)
+  timerUiMode = 'center-popup'
   win.webContents.send('timer:mode', { mode: 'center-popup' })
   setTimeout(() => win.show(), 40)
 }
@@ -133,6 +307,7 @@ function moveToCorner(win: BrowserWindow): void {
   const { w, h, x, y } = getCornerInfo()
   win.setSize(w, h, false)
   win.setPosition(x, y)
+  timerUiMode = 'corner'
   win.webContents.send('timer:mode', { mode: 'corner' })
   setTimeout(() => win.show(), 40)
 }
@@ -149,7 +324,88 @@ function restoreWindow(win: BrowserWindow): void {
   setTimeout(() => win.show(), 40)
 }
 
-function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?: number): void {
+function completeActiveTimer(win: BrowserWindow): void {
+  if (timerLimitMs === null) return
+  const today = getLocalDateString()
+  const usage = getDailyUsage()
+  safeWriteDailyUsage({
+    date: today,
+    sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0) + 1,
+    currentSessionRemainingMs: 0,
+  })
+  safeAppendSession({
+    date: today,
+    startTime: timerSessionStartTime || getLocalTimeString(),
+    endTime: getLocalTimeString(),
+    duration: timerLimitAtSession || Math.round(timerLimitMs / 60000),
+    limitAtSession: timerLimitAtSession || Math.round(timerLimitMs / 60000),
+    terminated: true,
+  })
+  stopTimerInternals()
+  timerUiMode = 'shutdown'
+  win.webContents.send('timer:mode', { mode: 'shutdown' })
+  setTimeout(() => {
+    killRoblox()
+    hideToTray()
+    win.webContents.send('timer:expired')
+  }, 3000)
+}
+
+function adjustActiveTimer(deltaMinutes: number): number {
+  if (!mainWindow || timerStart === null || timerLimitMs === null) return 0
+  const normalizedDeltaMinutes = normalizeTimerAdjustmentMinutes(deltaMinutes)
+
+  const now = Date.now()
+  const elapsed = now - timerStart
+  const remainingMs = Math.max(0, timerLimitMs - elapsed)
+  const nextRemainingMs = remainingMs + normalizedDeltaMinutes * 60 * 1000
+
+  timerLimitAtSession = Math.max(0, timerLimitAtSession + normalizedDeltaMinutes)
+
+  if (nextRemainingMs <= 0) {
+    completeActiveTimer(mainWindow)
+    return 0
+  }
+
+  timerLimitMs = elapsed + nextRemainingMs
+  warnedMinutes.clear()
+  const adjustedMinutesLeft = Math.ceil(nextRemainingMs / 60000)
+  for (const warnAt of [5, 3, 1]) {
+    if (adjustedMinutesLeft <= warnAt) warnedMinutes.add(warnAt)
+  }
+  if (nextRemainingMs <= 30_000) warnedMinutes.add(0)
+  if (nextRemainingMs <= 10_000) warnedMinutes.add(-1)
+
+  inCenterMode = false
+  if (timerUiMode !== 'corner' || nextRemainingMs <= 10_000) {
+    moveToCorner(mainWindow)
+  } else {
+    timerUiMode = 'corner'
+    mainWindow.webContents.send('timer:mode', { mode: 'corner' })
+  }
+
+  const today = getLocalDateString()
+  const usage = getDailyUsage()
+  safeWriteDailyUsage({
+    date: today,
+    sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
+    currentSessionRemainingMs: nextRemainingMs,
+  })
+  const settings = readSettings()
+  if (settings.resumeTimerOnRestart) {
+    safeWriteTimerState({
+      startTime: timerStart,
+      limitMs: timerLimitMs,
+      date: today,
+      sessionStartTime: timerSessionStartTime,
+      limitAtSession: timerLimitAtSession,
+    })
+  }
+  mainWindow.webContents.send('timer:tick', { remainingSeconds: Math.ceil(nextRemainingMs / 1000) })
+  return Math.ceil(nextRemainingMs / 1000)
+}
+
+function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?: number, sessionStartTime?: string, limitAtSession?: number): void {
   stopTimerInternals()
 
   const cursor = screen.getCursorScreenPoint()
@@ -157,6 +413,8 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
 
   const limitMs = Math.round(limitMinutes * 60 * 1000)
   timerLimitMs = limitMs
+  timerSessionStartTime = sessionStartTime || getLocalTimeString()
+  timerLimitAtSession = limitAtSession || limitMinutes
 
   if (resumeRemainingMs !== undefined) {
     timerStart = Date.now() - (limitMs - resumeRemainingMs)
@@ -169,8 +427,14 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
 
   const settings = readSettings()
   if (settings.resumeTimerOnRestart) {
-    const today = new Date().toISOString().slice(0, 10)
-    writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today })
+    const today = getLocalDateString()
+    safeWriteTimerState({
+      startTime: timerStart,
+      limitMs: timerLimitMs,
+      date: today,
+      sessionStartTime: timerSessionStartTime,
+      limitAtSession: timerLimitAtSession,
+    })
   }
 
   const { w, h, x, y } = getCornerInfo()
@@ -218,27 +482,12 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
       const { w: cw, h: ch, x: cx, y: cy } = getCenterInfo()
       win.setSize(cw, ch, false)
       win.setPosition(cx, cy)
+      timerUiMode = 'center-countdown'
       win.webContents.send('timer:mode', { mode: 'center-countdown' })
       setTimeout(() => win.show(), 40)
     }
 
-    if (remaining <= 0) {
-      // 세션 완료 — sessionsCompleted 증가, currentSession 클리어
-      const today = new Date().toISOString().slice(0, 10)
-      const usage = readDailyUsage()
-      writeDailyUsage({
-        date: today,
-        sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0) + 1,
-        currentSessionRemainingMs: 0,
-      })
-      stopTimerInternals()
-      win.webContents.send('timer:mode', { mode: 'shutdown' })
-      setTimeout(() => {
-        killRoblox()
-        hideToTray()
-        win.webContents.send('timer:expired')
-      }, 3000)
-    }
+    if (remaining <= 0) completeActiveTimer(win)
   }, 1000)
 }
 
@@ -252,15 +501,15 @@ function tryResumeTimer(): boolean {
   const state = readTimerState()
   if (!state) return false
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getLocalDateString()
   if (state.date !== today) {
-    clearTimerState()
+    safeClearTimerState()
     return false
   }
 
   // 모든 세션이 완료됐으면 복원 불가
   if (isSessionExhausted(today)) {
-    clearTimerState()
+    safeClearTimerState()
     return false
   }
 
@@ -269,32 +518,39 @@ function tryResumeTimer(): boolean {
     ? state.pausedRemainingMs
     : Math.max(0, state.limitMs - (Date.now() - state.startTime))
 
-  const usage = readDailyUsage()
+  const usage = getDailyUsage()
   const dailyRemaining = (usage && usage.date === today && usage.currentSessionRemainingMs > 0)
     ? usage.currentSessionRemainingMs
     : stateRemaining
 
   const remaining = Math.min(stateRemaining, dailyRemaining)
   if (remaining <= 0) {
-    clearTimerState()
+    safeClearTimerState()
+    return false
+  }
+
+  if (!isRobloxProcessRunning()) {
+    robloxRunning = false
+    safeWriteDailyUsage({
+      date: today,
+      sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
+      currentSessionRemainingMs: remaining,
+    })
+    safeWriteTimerState({
+      startTime: Date.now(),
+      limitMs: remaining,
+      date: today,
+      pausedRemainingMs: remaining,
+      sessionStartTime: state.sessionStartTime,
+      limitAtSession: state.limitAtSession,
+    })
     return false
   }
 
   const limitMinutes = Math.max(1, state.limitMs / 60000)
-  startTimer(win, limitMinutes, remaining)
+  startTimer(win, limitMinutes, remaining, state.sessionStartTime, state.limitAtSession)
   win.webContents.send('timer:resumed', { remainingSeconds: Math.ceil(remaining / 1000) })
   return true
-}
-
-function spawnWatchdog(): void {
-  if (!app.isPackaged) return
-  const watchdogPath = join(process.resourcesPath, 'resources', 'watch-loop.ps1')
-  if (!existsSync(watchdogPath)) return
-  const ps = spawn('powershell.exe', [
-    '-NonInteractive', '-WindowStyle', 'Hidden',
-    '-ExecutionPolicy', 'Bypass', '-File', watchdogPath,
-  ], { detached: true, stdio: 'ignore', windowsHide: true })
-  ps.unref()
 }
 
 function openAdminWindow(): void {
@@ -329,7 +585,7 @@ function openAdminWindow(): void {
     },
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     adminWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}#admin`)
   } else {
     adminWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'admin' })
@@ -362,7 +618,7 @@ function createTray(): void {
   const iconPath = join(getResourcesDir(), 'tray-icon.png')
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
   tray = new Tray(icon)
-  tray.setToolTip('Pact')
+  tray.setToolTip('My Pact')
   tray.on('click', () => addTrayClick(1))
   tray.on('double-click', () => addTrayClick(2))
 }
@@ -375,25 +631,32 @@ function startRobloxDetection(): void {
       if (err) return
       const isRunning = /RobloxPlayer(Beta)?\.exe/i.test(stdout)
 
-      if (isRunning && !robloxRunning) {
-        robloxRunning = true
-        const settings = readSettings()
-        const hour = new Date().getHours()
+      if (!robloxBaselineCaptured) {
+        robloxRunning = isRunning
+        robloxBaselineCaptured = true
+        return
+      }
 
-        if (hour < settings.allowedStartHour || hour >= settings.allowedEndHour) {
+      if (isRunning && !robloxRunning) {
+        if (!isAllowedHour()) {
           killRoblox()
+          showRobloxBlocked('outside-hours')
           return
         }
 
-        const today = new Date().toISOString().slice(0, 10)
+        const today = getLocalDateString()
         if (isSessionExhausted(today)) {
           killRoblox()
+          showRobloxBlocked('daily-exhausted')
           return
         }
 
+        robloxRunning = true
         mainWindow?.webContents.send('roblox:detected')
+        startTimerForDetectedRoblox()
       } else if (!isRunning && robloxRunning) {
         robloxRunning = false
+        pauseActiveTimer()
         mainWindow?.webContents.send('roblox:closed')
       }
     })
@@ -421,6 +684,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('close', (e) => {
+    if (allowQuit) return
     e.preventDefault()
     mainWindow?.hide()
   })
@@ -429,15 +693,27 @@ function createWindow(): void {
 
   ipcMain.handle('timer:start', async (_e, { limitMinutes }: { limitMinutes: number }) => {
     if (!mainWindow) return { resumed: false, remainingSeconds: 0, exhausted: false }
-
-    const limitMins = Number(limitMinutes)
-    if (!isFinite(limitMins) || limitMins <= 0) {
-      return { resumed: false, remainingSeconds: 0, exhausted: false }
+    if (timerStart !== null && timerLimitMs !== null) {
+      const remaining = Math.max(0, timerLimitMs - (Date.now() - timerStart))
+      return { resumed: true, remainingSeconds: Math.ceil(remaining / 1000), exhausted: false }
     }
 
-    const today = new Date().toISOString().slice(0, 10)
+    const trustedLimit = getTodaySessionCount().perSessionMinutes
+    const requestedLimit = Number(limitMinutes)
+    const limitMins = app.isPackaged ? trustedLimit : requestedLimit
+    if (!isFinite(limitMins) || limitMins <= 0) {
+      return { resumed: false, remainingSeconds: 0, exhausted: false, blocked: 'invalid-limit' }
+    }
+
+    if (!isAllowedHour()) {
+      killRoblox()
+      showRobloxBlocked('outside-hours')
+      return { resumed: false, remainingSeconds: 0, exhausted: false, blocked: 'outside-hours' }
+    }
+
+    const today = getLocalDateString()
     const { sessionsPerDay } = getTodaySessionCount()
-    const usage = readDailyUsage()
+    const usage = getDailyUsage()
     const usageToday = usage && usage.date === today ? usage : null
 
     // 현재 진행 중인 세션 재개 (같은 날, 잔여 시간 있음)
@@ -451,6 +727,7 @@ function createWindow(): void {
     const sessionsCompleted = usageToday ? usageToday.sessionsCompleted : 0
     if (sessionsCompleted >= sessionsPerDay) {
       killRoblox()
+      showRobloxBlocked('daily-exhausted')
       return { resumed: false, remainingSeconds: 0, exhausted: true }
     }
 
@@ -463,75 +740,33 @@ function createWindow(): void {
     }
   })
 
-  ipcMain.handle('timer:stop', async () => {
-    if (timerStart !== null && timerLimitMs !== null) {
-      const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
-      const today = new Date().toISOString().slice(0, 10)
-      const usage = readDailyUsage()
-      writeDailyUsage({
-        date: today,
-        sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
-        currentSessionRemainingMs: remainingMs,
-      })
-    }
-    stopTimerInternals()
-    hideToTray()
-  })
-
-  ipcMain.handle('timer:pause', async () => {
-    if (timerStart !== null && timerLimitMs !== null) {
-      const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
-      const today = new Date().toISOString().slice(0, 10)
-      const usage = readDailyUsage()
-      // 일시정지: 현재 세션 잔여 시간 저장 (sessionsCompleted는 만료 시에만 증가)
-      writeDailyUsage({
-        date: today,
-        sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
-        currentSessionRemainingMs: remainingMs,
-      })
-      if (remainingMs > 0) {
-        writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today, pausedRemainingMs: remainingMs })
-      } else {
-        clearTimerState()
-      }
-    }
-    pauseTimerInternals()
-    hideToTray()
+  ipcMain.handle('timer:stop', async (event) => {
+    requireAdminSession(event)
+    pauseActiveTimer()
   })
 
   ipcMain.handle('timer:get-status', async () => {
     if (timerStart === null || timerLimitMs === null) {
-      return { running: false, remainingSeconds: 0 }
+      return { running: false, remainingSeconds: 0, mode: timerUiMode }
     }
     const elapsed = Date.now() - timerStart
     const remaining = Math.max(0, timerLimitMs - elapsed)
-    return { running: true, remainingSeconds: Math.ceil(remaining / 1000) }
+    return { running: true, remainingSeconds: Math.ceil(remaining / 1000), mode: timerUiMode }
   })
 
-  ipcMain.handle('timer:add-time', async (_e, { minutes }: { minutes: number }) => {
-    if (timerStart === null || timerLimitMs === null) return
-    timerLimitMs += minutes * 60 * 1000
-    const today = new Date().toISOString().slice(0, 10)
-    const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
-    const usage = readDailyUsage()
-    writeDailyUsage({
-      date: today,
-      sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
-      currentSessionRemainingMs: remainingMs,
-    })
-    const settings = readSettings()
-    if (settings.resumeTimerOnRestart) {
-      writeTimerState({ startTime: timerStart, limitMs: timerLimitMs, date: today })
-    }
+  ipcMain.handle('timer:adjust-time', async (event, { minutes }: { minutes: number }) => {
+    requireAdminSession(event)
+    return { remainingSeconds: adjustActiveTimer(Number(minutes)) }
   })
 
-  ipcMain.handle('timer:admin-stop', async () => {
+  ipcMain.handle('timer:admin-stop', async (event) => {
+    requireAdminSession(event)
     if (timerStart !== null && timerLimitMs !== null) {
       const remainingMs = Math.max(0, timerLimitMs - (Date.now() - timerStart))
-      const today = new Date().toISOString().slice(0, 10)
-      const usage = readDailyUsage()
+      const today = getLocalDateString()
+      const usage = getDailyUsage()
       // 관리자 중지: 세션 잔여 시간 보존 (나중에 이어서 가능)
-      writeDailyUsage({
+      safeWriteDailyUsage({
         date: today,
         sessionsCompleted: (usage?.date === today ? usage.sessionsCompleted : 0),
         currentSessionRemainingMs: remainingMs,
@@ -545,9 +780,50 @@ function createWindow(): void {
   })
 
   ipcMain.handle('admin:close-window', async () => { adminWindow?.close() })
-  ipcMain.handle('admin:get-resume-option', async () => readSettings().resumeTimerOnRestart)
+  ipcMain.handle('admin:get-resume-option', async (event) => {
+    requireAdminSession(event)
+    return readSettings().resumeTimerOnRestart
+  })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
+  ipcMain.handle('window:hide-main', async () => {
+    hideToTray()
+    return true
+  })
+
+  ipcMain.handle('window:minimize-main', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow
+    if (win && !win.isDestroyed()) {
+      win.setAlwaysOnTop(false)
+      win.hide()
+    }
+    return true
+  })
+
+  ipcMain.on('window:hide-main-now', () => {
+    hideToTray()
+  })
+
+  ipcMain.handle('window:show-main', async () => {
+    if (mainWindow) {
+      if (timerStart !== null && timerLimitMs !== null) {
+        moveToCorner(mainWindow)
+      } else {
+        restoreWindow(mainWindow)
+      }
+      mainWindow.focus()
+    }
+  })
+
+  ipcMain.handle('app:shutdown', async (event) => {
+    requireAdminSession(event)
+    disableWatchdog()
+    stopWatchdogProcesses()
+    allowQuit = true
+    app.quit()
+    return true
+  })
+
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
@@ -564,7 +840,6 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   startRobloxDetection()
-  spawnWatchdog()
 
   mainWindow?.webContents.once('did-finish-load', () => {
     setTimeout(() => {

@@ -1,51 +1,98 @@
 import { ipcMain } from 'electron'
 import { createHash } from 'crypto'
 import { exec } from 'child_process'
-import { readSettings, writeSettings, readSessions, appendSession, readDailyUsage } from './fileStore'
-import type { Settings, Session } from '../shared/types'
+import { readAdminPasswordHash, readSettings, writeAdminPasswordHash, writeSettings, readSessions, readDailyUsage } from './fileStore'
+import { grantAdminSession, requireAdminSession } from './adminAuth'
+import { redactSettings } from '../shared/policy'
+import type { DailyRemaining, PublicSettings } from '../shared/types'
+
+const MAX_PIN_ATTEMPTS = 5
+const PIN_LOCK_MS = 30_000
+
+type PinThrottle = { attempts: number; lockedUntil: number }
+let pinThrottle: PinThrottle = { attempts: 0, lockedUntil: 0 }
+
+function assertPinAllowed(): void {
+  if (pinThrottle.lockedUntil > Date.now()) throw new Error('too many attempts')
+}
+
+function recordPinAttempt(ok: boolean): void {
+  if (ok) {
+    pinThrottle = { attempts: 0, lockedUntil: 0 }
+    return
+  }
+  const now = Date.now()
+  const attempts = pinThrottle.lockedUntil <= now ? pinThrottle.attempts + 1 : pinThrottle.attempts
+  pinThrottle = {
+    attempts,
+    lockedUntil: attempts >= MAX_PIN_ATTEMPTS ? now + PIN_LOCK_MS : 0,
+  }
+}
+
+function verifyAdminPin(pin: string): boolean {
+  assertPinAllowed()
+  if (!/^\d{4}$/.test(pin)) {
+    recordPinAttempt(false)
+    return false
+  }
+  const ok = hashPassword(pin) === readAdminPasswordHash()
+  recordPinAttempt(ok)
+  return ok
+}
+
+function getLocalDateString(date = new Date()): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function killRoblox(): void {
+  if (process.platform === 'darwin') {
+    exec('pkill -x "Roblox"')
+  } else if (process.platform === 'win32') {
+    for (const imageName of ['RobloxPlayer.exe', 'RobloxPlayerBeta.exe']) {
+      exec(`taskkill /F /IM ${imageName}`, { windowsHide: true })
+    }
+  }
+}
 
 export function registerIpcHandlers(): void {
-  ipcMain.handle('settings:read', async () => readSettings())
+  ipcMain.handle('settings:read', async () => redactSettings(readSettings()))
 
-  ipcMain.handle('settings:write', async (_e, settings: Settings) => {
-    writeSettings(settings)
+  ipcMain.handle('settings:write', async (event, settings: PublicSettings) => {
+    requireAdminSession(event)
+    const current = readSettings()
+    writeSettings({ ...current, ...settings, adminPasswordHash: current.adminPasswordHash })
   })
 
   ipcMain.handle('sessions:read', async () => readSessions())
 
-  ipcMain.handle('sessions:append', async (_e, sessionData: Omit<Session, 'id'>) => {
-    appendSession(sessionData)
-  })
-
   ipcMain.handle('roblox:kill', async () => {
-    if (process.platform === 'darwin') {
-      exec('pkill -x "Roblox"')
-    } else if (process.platform === 'win32') {
-      exec('taskkill /F /IM RobloxPlayer.exe', (err) => {
-        if (err) exec('taskkill /F /IM RobloxPlayerBeta.exe')
-      })
-    }
+    killRoblox()
   })
 
-  ipcMain.handle('admin:verify-password', async (_e, { hash }: { hash: string }) => {
-    const settings = readSettings()
-    return hash === settings.adminPasswordHash
+  ipcMain.handle('admin:verify-password', async (event, { pin }: { pin: string }) => {
+    const ok = verifyAdminPin(pin)
+    if (ok) grantAdminSession(event)
+    return ok
   })
 
-  ipcMain.handle('admin:change-password', async (_e, { hash, plain }: { hash: string; plain?: string }) => {
-    if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('invalid hash')
-    const settings = readSettings()
-    settings.adminPasswordHash = hash
-    settings.updatedAt = new Date().toISOString()
-    writeSettings(settings)
-    if (plain && process.platform === 'win32') {
-      const safe = plain.replace(/['"\\&|;`<>]/g, '')
-      exec(`reg add "HKLM\\Software\\MyPact" /v UninstallPin /t REG_SZ /d "${safe}" /f`,
-        { windowsHide: true })
-    }
+  ipcMain.handle('admin:unlock-settings', async (event, { pin }: { pin: string }) => {
+    const ok = verifyAdminPin(pin)
+    if (ok) grantAdminSession(event)
+    return ok
   })
 
-  ipcMain.handle('admin:set-resume-option', async (_e, { enabled }: { enabled: boolean }) => {
+  ipcMain.handle('admin:change-password', async (event, { currentPin, newPin }: { currentPin: string; newPin: string }) => {
+    requireAdminSession(event)
+    if (!/^\d{4}$/.test(currentPin) || !/^\d{4}$/.test(newPin)) throw new Error('invalid pin')
+    if (hashPassword(currentPin) !== readAdminPasswordHash()) throw new Error('invalid current password')
+    writeAdminPasswordHash(hashPassword(newPin))
+  })
+
+  ipcMain.handle('admin:set-resume-option', async (event, { enabled }: { enabled: boolean }) => {
+    requireAdminSession(event)
     const settings = readSettings()
     settings.resumeTimerOnRestart = enabled
     settings.updatedAt = new Date().toISOString()
@@ -53,8 +100,8 @@ export function registerIpcHandlers(): void {
   })
 
   // 오늘 남은 세션 정보 조회
-  ipcMain.handle('daily:get-remaining', async () => {
-    const today = new Date().toISOString().slice(0, 10)
+  ipcMain.handle('daily:get-remaining', async (): Promise<DailyRemaining> => {
+    const today = getLocalDateString()
     const usage = readDailyUsage()
     const settings = readSettings()
     const dow = new Date().getDay()

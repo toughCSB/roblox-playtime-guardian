@@ -1,34 +1,38 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Settings, Session } from '../shared/types'
+import type { DailyRemaining, PublicSettings, Session, TimerStartResult, TimerStatus } from '../shared/types'
 
 const api = {
-  readSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:read'),
-  writeSettings: (s: Settings): Promise<void> => ipcRenderer.invoke('settings:write', s),
+  readSettings: (): Promise<PublicSettings> => ipcRenderer.invoke('settings:read'),
+  writeSettings: (s: PublicSettings): Promise<void> => ipcRenderer.invoke('settings:write', s),
   readSessions: (): Promise<Session[]> => ipcRenderer.invoke('sessions:read'),
-  appendSession: (s: Omit<Session, 'id'>): Promise<void> => ipcRenderer.invoke('sessions:append', s),
 
-  startTimer: (limitMinutes: number): Promise<{ resumed: boolean; remainingSeconds: number; exhausted?: boolean }> =>
+  startTimer: (limitMinutes: number): Promise<TimerStartResult> =>
     ipcRenderer.invoke('timer:start', { limitMinutes }),
-  stopTimer: (): Promise<void> => ipcRenderer.invoke('timer:stop'),
-  pauseTimer: (): Promise<void> => ipcRenderer.invoke('timer:pause'),
   killRoblox: (): Promise<void> => ipcRenderer.invoke('roblox:kill'),
+  minimizeMainWindow: (): Promise<void> => ipcRenderer.invoke('window:minimize-main'),
+  hideMainWindow: (): Promise<void> => ipcRenderer.invoke('window:hide-main'),
+  hideMainWindowNow: (): void => ipcRenderer.send('window:hide-main-now'),
+  showMainWindow: (): Promise<void> => ipcRenderer.invoke('window:show-main'),
 
-  timerGetStatus: (): Promise<{ running: boolean; remainingSeconds: number }> =>
+  timerGetStatus: (): Promise<TimerStatus> =>
     ipcRenderer.invoke('timer:get-status'),
-  timerAddTime: (minutes: number): Promise<void> =>
-    ipcRenderer.invoke('timer:add-time', { minutes }),
+  timerAdjustTime: (minutes: number): Promise<{ remainingSeconds: number }> =>
+    ipcRenderer.invoke('timer:adjust-time', { minutes }),
   timerAdminStop: (): Promise<void> => ipcRenderer.invoke('timer:admin-stop'),
 
-  adminVerifyPassword: (hash: string): Promise<boolean> =>
-    ipcRenderer.invoke('admin:verify-password', { hash }),
-  adminChangePassword: (hash: string, plain?: string): Promise<void> =>
-    ipcRenderer.invoke('admin:change-password', { hash, plain }),
+  adminVerifyPassword: (pin: string): Promise<boolean> =>
+    ipcRenderer.invoke('admin:verify-password', { pin }),
+  adminUnlockSettings: (pin: string): Promise<boolean> =>
+    ipcRenderer.invoke('admin:unlock-settings', { pin }),
+  adminChangePassword: (currentPin: string, newPin: string): Promise<void> =>
+    ipcRenderer.invoke('admin:change-password', { currentPin, newPin }),
   adminCloseWindow: (): Promise<void> => ipcRenderer.invoke('admin:close-window'),
   adminGetResumeOption: (): Promise<boolean> => ipcRenderer.invoke('admin:get-resume-option'),
   adminSetResumeOption: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke('admin:set-resume-option', { enabled }),
+  shutdownApp: (): Promise<void> => ipcRenderer.invoke('app:shutdown'),
 
-  dailyGetRemaining: (): Promise<{ remainingSeconds: number; exhausted: boolean; totalSeconds: number }> =>
+  dailyGetRemaining: (): Promise<DailyRemaining> =>
     ipcRenderer.invoke('daily:get-remaining'),
 
   onTimerTick: (cb: (d: { remainingSeconds: number }) => void): (() => void) => {
@@ -70,6 +74,11 @@ const api = {
     const handler = () => cb()
     ipcRenderer.on('roblox:closed', handler)
     return () => ipcRenderer.removeListener('roblox:closed', handler)
+  },
+  onRobloxBlocked: (cb: (d: { reason: 'outside-hours' | 'daily-exhausted'; message: string }) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, d: { reason: 'outside-hours' | 'daily-exhausted'; message: string }) => cb(d)
+    ipcRenderer.on('roblox:blocked', handler)
+    return () => ipcRenderer.removeListener('roblox:blocked', handler)
   },
 }
 
