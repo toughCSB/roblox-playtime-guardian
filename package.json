@@ -1,18 +1,21 @@
 {
-  "name": "my-pact-for-my-future",
-  "version": "0.4.0",
+  "name": "my-pact",
+  "version": "0.50.0",
   "description": "자녀의 로블록스 시간을 관리하는 Electron 타이머 앱",
   "main": "out/main/main.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "package:win": "electron-vite build && electron-builder --win --x64",
+    "test": "vitest run",
+    "package:win": "electron-vite build && electron-builder --win --x64 --config.win.signAndEditExecutable=false",
+    "package:win:signed": "electron-vite build && electron-builder --win --x64",
     "package:mac": "electron-vite build && electron-builder --mac"
   },
   "build": {
     "appId": "com.mypact.myfuture",
-    "productName": "My Pact for My Future",
+    "productName": "My Pact",
+    "executableName": "My Pact",
     "icon": "resources/icon.ico",
     "directories": {
       "output": "dist"
@@ -44,9 +47,9 @@
       "include": "build/installer.nsh",
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "shortcutName": "My Pact for My Future",
+      "shortcutName": "My Pact",
       "deleteAppDataOnUninstall": false,
-      "uninstallDisplayName": "My Pact for My Future"
+      "uninstallDisplayName": "My Pact"
     },
     "mac": {
       "target": [
@@ -78,6 +81,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwindcss": "^3.4.14",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.7"
   }
 }
