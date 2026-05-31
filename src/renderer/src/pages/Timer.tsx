@@ -52,6 +52,9 @@ export default function Timer({ onOpenSettings }: Props) {
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
   const [overlayMode, setOverlayMode] = useState<'corner' | 'center-popup' | 'center-countdown' | 'shutdown'>('corner')
   const [autoStartBanner, setAutoStartBanner] = useState(false)
+  const [approvalPin, setApprovalPin] = useState('')
+  const [approvalError, setApprovalError] = useState('')
+  const [approvalPending, setApprovalPending] = useState(false)
   const isRunningRef = useRef(false)
   const dailyExhaustedRef = useRef(false)
 
@@ -118,7 +121,11 @@ export default function Timer({ onOpenSettings }: Props) {
       setSessionStartTime('')
       setBlockedMessage(result.blocked === 'outside-hours'
         ? `${s.allowedStartHour}시 ~ ${s.allowedEndHour}시에만 Roblox를 실행할 수 있어요.`
-        : 'Roblox를 시작할 수 없어요.')
+        : result.blocked === 'approval-required'
+          ? '부모님 PIN 승인 후 Roblox를 시작할 수 있어요.'
+          : result.blocked === 'roblox-not-running'
+            ? 'Roblox가 실행 중일 때만 타이머가 시작돼요.'
+            : 'Roblox를 시작할 수 없어요.')
       refreshDailyUsage()
       return
     }
@@ -139,8 +146,41 @@ export default function Timer({ onOpenSettings }: Props) {
       return
     }
 
+    setApprovalPin('')
+    setApprovalError('')
     setIsRunning(true)
     setRemainingSeconds(rs)
+  }
+
+  const handleParentApprovalAndStart = async (limitMinutes?: number) => {
+    const api = window.api
+    if (!api || approvalPending) return
+    if (!/^\d{4}$/.test(approvalPin)) {
+      setApprovalError('PIN 4자리를 입력해주세요.')
+      return
+    }
+    try {
+      setApprovalPending(true)
+      setApprovalError('')
+      const approval = await api.adminApproveNextSession(approvalPin)
+      if (!approval.ok) {
+        setApprovalError('PIN이 올바르지 않아요.')
+        return
+      }
+      setApprovalPin('')
+      setApprovalError('')
+      if (approval.launchedPendingRoblox) {
+        setBlockedMessage(null)
+        setAutoStartBanner(true)
+        setTimeout(() => setAutoStartBanner(false), 3000)
+        return
+      }
+      await handleStartTimer(limitMinutes)
+    } catch {
+      setApprovalError('승인에 실패했어요. 잠시 후 다시 시도해주세요.')
+    } finally {
+      setApprovalPending(false)
+    }
   }
 
   // Roblox 자동 감지 → 타이머 자동 시작
@@ -268,6 +308,7 @@ export default function Timer({ onOpenSettings }: Props) {
   const displayRemainingSeconds = dailyRemainingSeconds ?? (todayLimitMinutes * 60)
   const displayRemainingMinutes = Math.ceil(displayRemainingSeconds / 60)
   const canStart = isStartable && !dailyExhausted
+  const requiresParentApproval = displaySettings.requireApprovalBeforeStart && !currentSessionActive
 
   // ── 타이머 실행 중: 오버레이 모드들 ─────────────────────────────────────
   if (isRunning) {
@@ -568,6 +609,39 @@ export default function Timer({ onOpenSettings }: Props) {
                   : `오늘 게임 시간이 끝났어 (${displaySettings.allowedEndHour}시 이후)`}
             </p>
           </>
+        ) : requiresParentApproval ? (
+          <div className="no-drag" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '13px', fontWeight: 700, margin: 0 }}>
+              부모님 PIN 승인 후 이번 게임 타임을 시작해요.
+            </p>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={approvalPin}
+              onChange={(e) => setApprovalPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="PIN"
+              className="setting-input"
+              style={{ width: '96px', textAlign: 'center', letterSpacing: '4px' }}
+            />
+            {approvalError && (
+              <p style={{ color: '#ffcccc', fontSize: '12px', fontWeight: 700, margin: 0 }}>{approvalError}</p>
+            )}
+            <button
+              className="no-drag btn-start"
+              disabled={approvalPending}
+              onClick={() => handleParentApprovalAndStart()}
+              style={{
+                border: 'none', borderRadius: '14px',
+                padding: '13px 40px', fontSize: '18px', fontWeight: 900,
+                color: '#fff', letterSpacing: '1px',
+                cursor: approvalPending ? 'wait' : 'pointer',
+                opacity: approvalPending ? 0.75 : 1,
+              }}
+            >
+              {approvalPending ? '확인 중...' : '🔐 승인 후 시작'}
+            </button>
+          </div>
         ) : (
           <button
             className="no-drag btn-start"
@@ -586,7 +660,7 @@ export default function Timer({ onOpenSettings }: Props) {
         {import.meta.env.DEV && !dailyExhausted && (
           <button
             className="no-drag"
-            onClick={() => handleStartTimer(2)}
+            onClick={() => requiresParentApproval ? handleParentApprovalAndStart(2) : handleStartTimer(2)}
             style={{
               background: 'transparent',
               border: '1px solid rgba(255,255,255,0.4)',

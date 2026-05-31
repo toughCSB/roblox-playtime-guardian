@@ -28,7 +28,9 @@
   ExecWait 'schtasks /create /tn "MyPact" /tr "wscript.exe //B //Nologo \"$INSTDIR\resources\resources\start-watch-loop.vbs\"" /sc onlogon /rl HIGHEST /delay 0000:10 /f'
   ExecWait `cmd.exe /c mkdir C:\ProgramData\MyPact C:\ProgramData\MyPact\Admin C:\ProgramData\MyPact\Data 2>nul`
   Delete "C:\ProgramData\MyPact\watchdog-disabled.flag"
+  Delete "C:\ProgramData\MyPact\Admin\watchdog-disabled.flag"
   ExecWait `icacls.exe C:\ProgramData\MyPact /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)M /C`
+  ExecWait `icacls.exe C:\ProgramData\MyPact\settings*.json /inheritance:e /grant:r *S-1-5-18:F *S-1-5-32-544:F *S-1-5-32-545:M /C`
   ExecWait `icacls.exe C:\ProgramData\MyPact\Admin /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /T /C`
   ExecWait `icacls.exe C:\ProgramData\MyPact\Data /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)M /T /C`
   ExecWait `icacls.exe C:\ProgramData\MyPact\Data\*.json /inheritance:e /grant:r *S-1-5-18:F *S-1-5-32-544:F *S-1-5-32-545:M /C`
@@ -68,7 +70,7 @@
     MessageBox MB_OK|MB_ICONSTOP "PIN verification failed. Uninstall cancelled."
     Abort
   ${EndIf}
-  FileOpen $R1 "C:\ProgramData\MyPact\watchdog-disabled.flag" w
+  FileOpen $R1 "C:\ProgramData\MyPact\Admin\watchdog-disabled.flag" w
   FileWrite $R1 'uninstall'
   FileClose $R1
   ExecWait 'schtasks /delete /tn "MyPact" /f'

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { DailyRemaining, PublicSettings, Session, TimerStartResult, TimerStatus } from '../shared/types'
+import type { AdminApprovalResult, DailyRemaining, PublicSettings, Session, TimerStartResult, TimerStatus } from '../shared/types'
 
 const api = {
   readSettings: (): Promise<PublicSettings> => ipcRenderer.invoke('settings:read'),
@@ -24,6 +24,8 @@ const api = {
     ipcRenderer.invoke('admin:verify-password', { pin }),
   adminUnlockSettings: (pin: string): Promise<boolean> =>
     ipcRenderer.invoke('admin:unlock-settings', { pin }),
+  adminApproveNextSession: (pin: string): Promise<AdminApprovalResult> =>
+    ipcRenderer.invoke('admin:approve-next-session', { pin }),
   adminChangePassword: (currentPin: string, newPin: string): Promise<void> =>
     ipcRenderer.invoke('admin:change-password', { currentPin, newPin }),
   adminCloseWindow: (): Promise<void> => ipcRenderer.invoke('admin:close-window'),
@@ -75,8 +77,8 @@ const api = {
     ipcRenderer.on('roblox:closed', handler)
     return () => ipcRenderer.removeListener('roblox:closed', handler)
   },
-  onRobloxBlocked: (cb: (d: { reason: 'outside-hours' | 'daily-exhausted'; message: string }) => void): (() => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, d: { reason: 'outside-hours' | 'daily-exhausted'; message: string }) => cb(d)
+  onRobloxBlocked: (cb: (d: { reason: 'outside-hours' | 'daily-exhausted' | 'approval-required'; message: string }) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, d: { reason: 'outside-hours' | 'daily-exhausted' | 'approval-required'; message: string }) => cb(d)
     ipcRenderer.on('roblox:blocked', handler)
     return () => ipcRenderer.removeListener('roblox:blocked', handler)
   },

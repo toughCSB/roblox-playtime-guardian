@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen, Tray, nativeImage } from 'electron'
 import { join } from 'path'
-import { exec, execFileSync } from 'child_process'
-import { mkdirSync, writeFileSync } from 'fs'
+import { exec, execFileSync, spawn } from 'child_process'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { registerIpcHandlers } from './ipc'
 import { requireAdminSession } from './adminAuth'
 import {
@@ -9,10 +9,17 @@ import {
   readDailyUsage, writeDailyUsage, appendSession,
 } from './fileStore'
 import { isHourAllowed } from '../shared/policy'
+import { shouldRequireApprovalForStart } from '../shared/startPolicy'
+import { shouldBlockTimerStartWithoutRoblox, shouldPauseTimerWhenRobloxMissing } from '../shared/robloxSync'
 import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
+import { decideStartupWindowAction } from '../shared/startupVisibility'
 import type { DailyUsage, Session, TimerState } from '../shared/types'
 
-if (!app.requestSingleInstanceLock()) {
+// Packaged app must run once per Windows user/session. Electron's single instance
+// lock can block a standard-user session when another account already has My Pact
+// running, so keep the lock only for local development. The watchdog already
+// prevents duplicate packaged instances inside the same session.
+if (!app.isPackaged && !app.requestSingleInstanceLock()) {
   app.quit()
 }
 
@@ -36,13 +43,20 @@ let trayClickTimer: ReturnType<typeof setTimeout> | null = null
 let robloxDetectInterval: ReturnType<typeof setInterval> | null = null
 let robloxRunning = false
 let lastRobloxBlockedReason = ''
+let lastRobloxPresenceCheck = 0
+type RobloxLaunchCommand = { executablePath: string; args: string[] }
+let pendingApprovalRobloxLaunch: RobloxLaunchCommand | null = null
+let pendingApprovalRobloxLaunchAt = 0
+const PENDING_APPROVAL_LAUNCH_TTL_MS = 2 * 60 * 1000
 
 let timerDisplay: Electron.Display | null = null
 let volatileDailyUsage: DailyUsage | null = null
 const startHidden = process.argv.includes('--start-hidden')
 let robloxBaselineCaptured = false
+let parentApprovalGrantedForNextSession = false
 const COMMON_APP_DATA_DIR = process.platform === 'win32' ? 'C:\\ProgramData' : app.getPath('userData')
-const WATCHDOG_DISABLED_PATH = join(COMMON_APP_DATA_DIR, 'MyPact', 'watchdog-disabled.flag')
+const WATCHDOG_DISABLED_PATH = join(COMMON_APP_DATA_DIR, 'MyPact', 'Admin', 'watchdog-disabled.flag')
+const FALLBACK_TRAY_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB6ElEQVR4nI2SQUgUYRTHX0TdI9jd2R0NPARRLCYliLDe1Et2iDCo9KQiwSJ0CDYFPdimwmIYKOwcEiMS6RLoJaKCiKFZamfDgohaRGgCq6MwY/7j/+3OsO1uWw+Gx/f+v//73nzfJ9IgHNG/OaKDuRFXE6aEEjkJXy2b/e/I/5oPmBJyTQnhk0S/b4vubkmMkyw6onf8s4Ej+rwlYbw6HEP+8ihujaaQH7iG59op5CXCSeYbmY2XEsLGzduYnMyAMTKSUtkwVlWdOrl65iuvJYziXQM7Oz8QjcaRTt+BH5ZVUJk6OfJ/NPgiMftF90Ukk1PwvD309PSjpeUsKoN16uTIV+6u2aJhK7sSwK7rorm5DclzA6gOcuTp8xu0c6zU9WksLz8KwIUzvdh9+BjTxzuDGnVy5d9o9xu05iSC9aUVFIvbAfxz/SnsC0PoO3oCTU2nkc3eVzq5XOlGWv0Gh96L9uvj1BxM823NyOPjaXUeY2MTSidHnr7gHL6K/uDJsTbMzSzVNKgM6uTIV19jfFM0vLk0BM/zkMkYymDbH1TmmnXqm6UDjNd7C4MF0bCROA/r3iqwv4/h4ZTKXLNeKJkHG73G7s8SfWdJBM8Oalg7mVCZa9ap/9Vc1ajLEf2GI/psOXfV434Du+O1a17Rx5AAAAAASUVORK5CYII='
 
 function getDailyUsage(): DailyUsage | null {
   if (volatileDailyUsage) {
@@ -112,6 +126,16 @@ function getResourcesDir(): string {
     : join(process.cwd(), 'resources')
 }
 
+
+function spawnSessionWatchdog(): void {
+  if (process.platform !== 'win32' || !app.isPackaged) return
+  if (process.argv.includes('--no-watchdog')) return
+  const launcherPath = join(getResourcesDir(), 'start-watch-loop.vbs')
+  exec(`wscript.exe //B //Nologo "${launcherPath}"`, { windowsHide: true }, (err) => {
+    if (err) console.error('session watchdog spawn failed', err)
+  })
+}
+
 function getLocalDateString(date = new Date()): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
@@ -137,6 +161,77 @@ function killRoblox(retries = 2): void {
     if (retries > 0) setTimeout(() => killRoblox(retries - 1), 1500)
   } else if (process.platform === 'darwin') {
     exec('pkill -x "Roblox"')
+  }
+}
+
+function splitWindowsCommandLine(commandLine: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < commandLine.length; i++) {
+    const ch = commandLine[i]
+    if (ch === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (/\s/.test(ch) && !inQuotes) {
+      if (current) {
+        result.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += ch
+  }
+
+  if (current) result.push(current)
+  return result
+}
+
+function getRobloxLaunchCommand(): RobloxLaunchCommand | null {
+  if (process.platform !== 'win32') return null
+  try {
+    const ps = "$p=Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('RobloxPlayer.exe','RobloxPlayerBeta.exe') } | Select-Object -First 1 ExecutablePath,CommandLine; if ($p) { $p | ConvertTo-Json -Compress }"
+    const stdout = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], {
+      encoding: 'utf8',
+      windowsHide: true,
+    }).trim()
+    if (!stdout) return null
+    const parsed = JSON.parse(stdout) as { ExecutablePath?: string; CommandLine?: string }
+    if (!parsed.ExecutablePath) return null
+    const parts = splitWindowsCommandLine(parsed.CommandLine ?? '')
+    const args = parts.length > 0 ? parts.slice(1) : []
+    return { executablePath: parsed.ExecutablePath, args }
+  } catch (err) {
+    console.error('capture Roblox launch command failed', err)
+    return null
+  }
+}
+
+function rememberPendingApprovalRobloxLaunch(): void {
+  pendingApprovalRobloxLaunch = getRobloxLaunchCommand()
+  pendingApprovalRobloxLaunchAt = pendingApprovalRobloxLaunch ? Date.now() : 0
+}
+
+function launchPendingApprovalRoblox(): boolean {
+  const pending = pendingApprovalRobloxLaunch
+  pendingApprovalRobloxLaunch = null
+  if (!pending) return false
+  if (Date.now() - pendingApprovalRobloxLaunchAt > PENDING_APPROVAL_LAUNCH_TTL_MS) return false
+  try {
+    const child = spawn(pending.executablePath, pending.args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    })
+    child.unref()
+    robloxRunning = false
+    robloxBaselineCaptured = true
+    return true
+  } catch (err) {
+    console.error('launch pending Roblox after approval failed', err)
+    return false
   }
 }
 
@@ -226,21 +321,51 @@ function pauseActiveTimer(): void {
   hideToTray()
 }
 
-function startTimerForDetectedRoblox(): void {
-  if (!mainWindow || timerStart !== null) return
+function pauseTimerBecauseRobloxClosed(): void {
+  if (!shouldPauseTimerWhenRobloxMissing(timerStart !== null, false)) return
+  robloxRunning = false
+  pauseActiveTimer()
+  mainWindow?.webContents.send('roblox:closed')
+}
+
+function approveNextSession(): boolean {
+  parentApprovalGrantedForNextSession = true
+  return launchPendingApprovalRoblox()
+}
+
+function consumeParentApprovalForFreshSession(): void {
+  parentApprovalGrantedForNextSession = false
+}
+
+function hasParentApprovalForFreshSession(settings = readSettings()): boolean {
+  return !shouldRequireApprovalForStart(settings, { hasActiveSession: false }) || parentApprovalGrantedForNextSession
+}
+
+function startTimerForDetectedRoblox(): boolean {
+  if (!mainWindow || timerStart !== null) return false
+  if (shouldBlockTimerStartWithoutRoblox(app.isPackaged, isRobloxProcessRunning())) return false
   const today = getLocalDateString()
   const { perSessionMinutes, sessionsPerDay } = getTodaySessionCount()
   const usage = getDailyUsage()
   const usageToday = usage && usage.date === today ? usage : null
   if (usageToday && usageToday.currentSessionRemainingMs > 0) {
     startTimer(mainWindow, perSessionMinutes, usageToday.currentSessionRemainingMs)
-    return
+    return true
   }
   if ((usageToday?.sessionsCompleted ?? 0) >= sessionsPerDay) {
     killRoblox()
-    return
+    return false
   }
+  const settings = readSettings()
+  if (!hasParentApprovalForFreshSession(settings)) {
+    rememberPendingApprovalRobloxLaunch()
+    killRoblox()
+    showRobloxBlocked('approval-required')
+    return false
+  }
+  consumeParentApprovalForFreshSession()
   startTimer(mainWindow, perSessionMinutes)
+  return true
 }
 
 function getActiveDisplay(): Electron.Display {
@@ -279,12 +404,14 @@ function hideToTray(): void {
   }
 }
 
-function showRobloxBlocked(reason: 'outside-hours' | 'daily-exhausted'): void {
+function showRobloxBlocked(reason: 'outside-hours' | 'daily-exhausted' | 'approval-required'): void {
   if (!mainWindow) return
   const settings = readSettings()
   const message = reason === 'outside-hours'
     ? `지금은 Roblox 허용 시간이 아닙니다. (${settings.allowedStartHour}시 ~ ${settings.allowedEndHour}시)`
-    : '오늘 Roblox 게임 시간을 모두 사용했습니다.'
+    : reason === 'approval-required'
+      ? '부모님 PIN 승인 후 Roblox를 시작할 수 있습니다.'
+      : '오늘 Roblox 게임 시간을 모두 사용했습니다.'
   const key = `${reason}:${getLocalDateString()}:${new Date().getHours()}:${new Date().getMinutes()}`
   if (lastRobloxBlockedReason === key) return
   lastRobloxBlockedReason = key
@@ -425,6 +552,8 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
   warnedMinutes.clear()
   inCenterMode = false
 
+  robloxRunning = process.platform === 'win32' ? isRobloxProcessRunning() : robloxRunning
+
   const settings = readSettings()
   if (settings.resumeTimerOnRestart) {
     const today = getLocalDateString()
@@ -447,6 +576,22 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
 
   timerInterval = setInterval(() => {
     if (timerStart === null || timerLimitMs === null) return
+
+    const now = Date.now()
+    if (process.platform === 'win32' && now - lastRobloxPresenceCheck >= 2000) {
+      lastRobloxPresenceCheck = now
+      if (!isRobloxProcessRunning()) {
+        pauseTimerBecauseRobloxClosed()
+        return
+      }
+      robloxRunning = true
+    }
+
+    if (!isAllowedHour()) {
+      completeActiveTimer(win)
+      showRobloxBlocked('outside-hours')
+      return
+    }
 
     const elapsed = Date.now() - timerStart
     const remaining = Math.max(0, timerLimitMs - elapsed)
@@ -529,7 +674,7 @@ function tryResumeTimer(): boolean {
     return false
   }
 
-  if (!isRobloxProcessRunning()) {
+  if (shouldBlockTimerStartWithoutRoblox(app.isPackaged, isRobloxProcessRunning())) {
     robloxRunning = false
     safeWriteDailyUsage({
       date: today,
@@ -614,13 +759,45 @@ function addTrayClick(count = 1): void {
   }, 400)
 }
 
+function loadTrayIcon(): Electron.NativeImage {
+  const resourcesDir = getResourcesDir()
+  const candidatePaths = process.platform === 'win32'
+    ? [
+        join(resourcesDir, 'icon.ico'),
+        join(resourcesDir, 'tray-icon.png'),
+        join(resourcesDir, 'icon-256.png'),
+      ]
+    : [
+        join(resourcesDir, 'tray-icon.png'),
+        join(resourcesDir, 'icon-256.png'),
+        join(resourcesDir, 'icon.ico'),
+      ]
+
+  for (const iconPath of candidatePaths) {
+    if (!existsSync(iconPath)) continue
+    const icon = nativeImage.createFromPath(iconPath)
+    if (!icon.isEmpty()) {
+      return process.platform === 'win32' ? icon : icon.resize({ width: 16, height: 16 })
+    }
+    console.error('tray icon image was empty', iconPath)
+  }
+
+  const fallback = nativeImage.createFromDataURL(FALLBACK_TRAY_ICON_DATA_URL)
+  if (!fallback.isEmpty()) return fallback
+
+  throw new Error(`No usable tray icon found in ${resourcesDir}`)
+}
+
 function createTray(): void {
-  const iconPath = join(getResourcesDir(), 'tray-icon.png')
-  const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
-  tray = new Tray(icon)
-  tray.setToolTip('My Pact')
-  tray.on('click', () => addTrayClick(1))
-  tray.on('double-click', () => addTrayClick(2))
+  try {
+    const icon = loadTrayIcon()
+    tray = new Tray(icon)
+    tray.setToolTip('My Pact')
+    tray.on('click', () => addTrayClick(1))
+    tray.on('double-click', () => addTrayClick(2))
+  } catch (err) {
+    console.error('tray creation failed; continuing without crashing startup', err)
+  }
 }
 
 function startRobloxDetection(): void {
@@ -632,9 +809,9 @@ function startRobloxDetection(): void {
       const isRunning = /RobloxPlayer(Beta)?\.exe/i.test(stdout)
 
       if (!robloxBaselineCaptured) {
-        robloxRunning = isRunning
         robloxBaselineCaptured = true
-        return
+        robloxRunning = false
+        if (!isRunning) return
       }
 
       if (isRunning && !robloxRunning) {
@@ -651,13 +828,11 @@ function startRobloxDetection(): void {
           return
         }
 
-        robloxRunning = true
-        mainWindow?.webContents.send('roblox:detected')
-        startTimerForDetectedRoblox()
-      } else if (!isRunning && robloxRunning) {
-        robloxRunning = false
-        pauseActiveTimer()
-        mainWindow?.webContents.send('roblox:closed')
+        const started = startTimerForDetectedRoblox()
+        robloxRunning = started
+        if (started) mainWindow?.webContents.send('roblox:detected')
+      } else if (!isRunning && (robloxRunning || timerStart !== null)) {
+        pauseTimerBecauseRobloxClosed()
       }
     })
   }, 3000)
@@ -698,6 +873,10 @@ function createWindow(): void {
       return { resumed: true, remainingSeconds: Math.ceil(remaining / 1000), exhausted: false }
     }
 
+    if (shouldBlockTimerStartWithoutRoblox(app.isPackaged, isRobloxProcessRunning())) {
+      return { resumed: false, remainingSeconds: 0, exhausted: false, blocked: 'roblox-not-running' }
+    }
+
     const trustedLimit = getTodaySessionCount().perSessionMinutes
     const requestedLimit = Number(limitMinutes)
     const limitMins = app.isPackaged ? trustedLimit : requestedLimit
@@ -731,7 +910,16 @@ function createWindow(): void {
       return { resumed: false, remainingSeconds: 0, exhausted: true }
     }
 
+    const settings = readSettings()
+    if (!hasParentApprovalForFreshSession(settings)) {
+      rememberPendingApprovalRobloxLaunch()
+      killRoblox()
+      showRobloxBlocked('approval-required')
+      return { resumed: false, remainingSeconds: 0, exhausted: false, blocked: 'approval-required' }
+    }
+
     // 새 세션 시작 (fresh) — daily-usage는 세션 완료 시 업데이트
+    consumeParentApprovalForFreshSession()
     startTimer(mainWindow, limitMins)
     return {
       resumed: false,
@@ -743,6 +931,7 @@ function createWindow(): void {
   ipcMain.handle('timer:stop', async (event) => {
     requireAdminSession(event)
     pauseActiveTimer()
+    killRoblox()
   })
 
   ipcMain.handle('timer:get-status', async () => {
@@ -773,6 +962,7 @@ function createWindow(): void {
       })
     }
     stopTimerInternals()
+    killRoblox()
     if (mainWindow) {
       restoreWindow(mainWindow)
       mainWindow.webContents.send('timer:admin-stopped')
@@ -818,6 +1008,7 @@ function createWindow(): void {
     requireAdminSession(event)
     disableWatchdog()
     stopWatchdogProcesses()
+    killRoblox()
     allowQuit = true
     app.quit()
     return true
@@ -836,7 +1027,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  registerIpcHandlers()
+  registerIpcHandlers({ approveNextSession })
+  spawnSessionWatchdog()
   createWindow()
   createTray()
   startRobloxDetection()
@@ -844,7 +1036,13 @@ app.whenReady().then(() => {
   mainWindow?.webContents.once('did-finish-load', () => {
     setTimeout(() => {
       const resumed = tryResumeTimer()
-      if (!resumed) mainWindow?.hide()
+      const action = decideStartupWindowAction({ startHidden, resumedTimer: resumed })
+      if (action === 'show-main-window' && mainWindow) {
+        restoreWindow(mainWindow)
+        mainWindow.focus()
+      } else if (action === 'hide-to-tray') {
+        mainWindow?.hide()
+      }
     }, 500)
   })
 

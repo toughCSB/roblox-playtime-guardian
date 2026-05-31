@@ -31,7 +31,7 @@ export default function SettingsPage({ onBack }: Props) {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch {
-      setError('저장에 실패했어요. 부모 관리자 Windows 계정에서 다시 시도해주세요.')
+      setError('저장에 실패했어요. 설치 후 C:\\ProgramData\\MyPact 권한을 확인해주세요.')
       setTimeout(() => setError(''), 3000)
     }
   }
@@ -202,6 +202,32 @@ export default function SettingsPage({ onBack }: Props) {
             className="setting-input"
           />
         </Row>
+
+        <p style={{ color: '#E8001C', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px', marginTop: '8px', marginBottom: '2px' }}>
+          시작 승인 방식
+        </p>
+
+        <div style={{
+          background: 'rgba(255,255,255,0.22)', backdropFilter: 'blur(8px)',
+          borderRadius: '14px', padding: '14px 18px',
+          border: '1px solid rgba(255,255,255,0.35)',
+        }}>
+          <label className="no-drag" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={settings.requireApprovalBeforeStart}
+              onChange={(e) => setSettings(s => ({ ...s, requireApprovalBeforeStart: e.target.checked }))}
+              style={{ marginTop: '3px', width: '18px', height: '18px', accentColor: '#E8001C' }}
+            />
+            <span style={{ color: '#fff', fontSize: '14px', fontWeight: 700, lineHeight: 1.35 }}>
+              부모 PIN 승인 후 게임 시작
+              <br />
+              <span style={{ color: 'rgba(255,255,255,0.76)', fontSize: '12px', fontWeight: 500 }}>
+                켜두면 각 새 게임 타임마다 부모님 PIN 승인이 필요해요. 끄면 Roblox 감지 시 자동 시작돼요.
+              </span>
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* 저장 버튼 */}

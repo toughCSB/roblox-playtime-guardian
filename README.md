@@ -2,7 +2,7 @@
 
 > **자녀의 로블록스 게임 시간을 부모가 설정하고, 자녀 스스로 서약을 지키도록 돕는 Electron 데스크탑 타이머 앱**
 
-[![Version](https://img.shields.io/badge/version-0.50.1-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
+[![Version](https://img.shields.io/badge/version-0.60.0-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
 ---
 
@@ -168,6 +168,40 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 
 ---
 
+### ✅ v0.60.0 안정화 요약
+최초 코드리뷰에서 지적했던 핵심 런타임 우회 경로와 이후 실기기 테스트에서 발견된 시작/트레이 문제를 정리한 안정화 릴리즈입니다.
+
+- 기본 PIN `0000`의 기본 해시를 전체 SHA-256 값으로 고정하고 회귀 테스트를 추가했습니다.
+- 앱 시작 시 Roblox가 이미 실행 중이어도 허용 시간/세션 쿼터/부모 승인 정책을 반드시 검사합니다.
+- 타이머 실행 중에도 허용 시간 종료를 계속 검사해 종료 시각이 지나면 Roblox를 강제 종료합니다.
+- Roblox 프로세스가 사라지면 타이머를 즉시 일시정지하고 남은 시간을 보존합니다.
+- Roblox가 실행 중이 아닌 패키지 앱에서는 타이머 시작을 차단합니다.
+- 부모 PIN 승인으로 차단된 Roblox 실행은 승인 성공 후 원래 실행 커맨드로 다시 시작합니다.
+- 트레이 아이콘 로딩 실패 시 앱이 죽지 않도록 다중 icon 후보와 내장 fallback을 적용했습니다.
+- `--start-hidden` 자동실행과 수동 실행을 구분해, 수동 실행 시에는 메인 창이 정상 표시되도록 수정했습니다.
+- Windows installer GitHub Actions에서 테스트/typecheck/build와 실제 NSIS 설치본 artifact 생성을 검증합니다.
+
+### 🧭 추가 개선 필요 사항
+아래 항목은 현재 실사용을 막는 긴급 버그는 아니며, 아이가 고급 우회까지 시도하는 단계나 장기 유지보수 단계에서 처리할 후속 과제입니다.
+
+1. **Data JSON 직접 변조 방지**
+   - 현재 `%ProgramData%\MyPact\Data`는 부모/자녀 계정이 같은 타이머 상태를 공유하기 위해 표준 사용자 쓰기가 필요합니다.
+   - `daily-usage.json`, `timer-state.json`, `sessions.json`의 값 검증은 하지만, 파일 삭제/직접 편집까지 완전히 막지는 않습니다.
+   - 강한 방지가 필요해지면 Windows Service/SYSTEM 보조 프로세스가 실제 감시자 역할을 맡는 구조로 확장합니다.
+
+2. **PIN 보안 하드닝**
+   - 현재는 4자리 PIN + SHA-256 기반입니다.
+   - 추후 6자리 이상 PIN, salt 포함 PBKDF2/bcrypt/argon2, 기본 PIN 강제 변경, 앱 재시작 후에도 유지되는 실패 횟수 제한을 적용합니다.
+
+3. **시작/감시 로그 강화**
+   - watchdog, 자동실행, Roblox 차단/재실행 이벤트를 `%ProgramData%\MyPact\Logs`에 남기면 다음 실기기 장애 분석 시간이 줄어듭니다.
+
+4. **main process 구조 분리**
+   - 현재 `main.ts`는 안정화 과정에서 책임이 많아졌습니다.
+   - 기능 추가 전에 `robloxProcess.ts`, `timerEngine.ts`, `policyEngine.ts`, `tray.ts`, `watchdog.ts`로 점진 분리하면 테스트성과 유지보수성이 좋아집니다.
+
+---
+
 ## 기술 스펙
 
 | 항목 | 내용 |
@@ -266,8 +300,8 @@ npm run package:win
 최종 검증 설치본:
 
 ```text
-dist\My Pact Setup 0.50.1.exe
-SHA256: A4DD9984FC261DEF647D17E9A268F1D49FC23542B8B375F20903755F0F3F2786
+GitHub Release `v0.60.0`의 `My Pact Setup 0.60.0.exe`
+SHA256: 릴리즈 노트와 첨부 asset checksum 기준으로 확인
 ```
 
 Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신뢰된 코드 서명 인증서로 서명해야 합니다. 인증서 환경변수(`CSC_LINK`, `CSC_KEY_PASSWORD` 등)와 symlink 생성 권한이 있는 릴리즈 환경에서는 `npm run package:win:signed`를 사용하세요. 일반 개발/내부 테스트용 재설치 파일은 `npm run package:win`으로 생성합니다.
@@ -278,6 +312,7 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
+| **v0.60.0** | 2026-05-31 | Roblox 감지/타이머 동기화, 부모 승인 후 재실행, 트레이/자동실행/수동 실행 안정화, 최초 리뷰 후속 과제 정리 |
 | **v0.50.1** | 2026-05-31 | 관리자 비밀번호 변경 실패 수정, 보호된 PIN 파일 갱신 시 UAC 승격 경로 보강 |
 | **v0.50.0** | 2026-05-31 | ProgramData 저장소/관리자 세션 하드닝, watchdog 자동 재실행, Roblox 오탐 방지, 최소화 버튼 수정, 관리자 시간 추가/차감/직접입력, watchdog 재시작 시 Roblox 미실행 타이머 자동진행 방지 |
 | **v0.4.0** | 2026-05-29 | 세션 횟수 설정(XX분×X회), 데일리 쿼터 관리, 경고 팝업 위치 수정, 표준계정 버그 수정 |
@@ -299,7 +334,8 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 - [x] **v0.4.0** — 세션 횟수 설정(XX분×X회), 데일리 쿼터 관리, 경고 팝업 위치 수정, 표준계정 버그 수정
 - [x] **v0.50.0** — 설치/자동실행 안정화, watchdog 복구, 관리자 시간 조정, 보안 하드닝, 최소화/복원 버그 수정
 - [x] **v0.50.1** — 관리자 비밀번호 변경 hotfix
-- [ ] **v0.6.0** — 요일별 개별 시간 설정, 플레이 기록 화면
+- [x] **v0.60.0** — Roblox enforcement/승인/트레이/자동실행 안정화 릴리즈
+- [ ] **v0.70.0** — 요일별 개별 시간 설정, 플레이 기록 화면
 - [ ] **v1.0.0** — 웹 대시보드 연동 (주간/월간 그래프)
 
 ---

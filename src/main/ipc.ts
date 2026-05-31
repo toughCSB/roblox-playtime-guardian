@@ -57,7 +57,7 @@ function killRoblox(): void {
   }
 }
 
-export function registerIpcHandlers(): void {
+export function registerIpcHandlers(callbacks: { approveNextSession?: () => boolean | void } = {}): void {
   ipcMain.handle('settings:read', async () => redactSettings(readSettings()))
 
   ipcMain.handle('settings:write', async (event, settings: PublicSettings) => {
@@ -82,6 +82,12 @@ export function registerIpcHandlers(): void {
     const ok = verifyAdminPin(pin)
     if (ok) grantAdminSession(event)
     return ok
+  })
+
+  ipcMain.handle('admin:approve-next-session', async (_event, { pin }: { pin: string }) => {
+    const ok = verifyAdminPin(pin)
+    const launchedPendingRoblox = ok ? callbacks.approveNextSession?.() === true : false
+    return { ok, launchedPendingRoblox }
   })
 
   ipcMain.handle('admin:change-password', async (event, { currentPin, newPin }: { currentPin: string; newPin: string }) => {

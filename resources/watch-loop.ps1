@@ -4,7 +4,7 @@ $appPath = Join-Path $appDir "My Pact.exe"
 $appName = "My Pact"
 $sessionId = (Get-Process -Id $PID).SessionId
 $lockPath = Join-Path $env:TEMP "MyPactWatchdog-$sessionId.lock"
-$disabledPath = Join-Path $env:ProgramData "MyPact\watchdog-disabled.flag"
+$disabledPath = Join-Path $env:ProgramData "MyPact\Admin\watchdog-disabled.flag"
 $lockStream = $null
 
 if (Test-Path $disabledPath) {
