@@ -15,7 +15,14 @@
 
 /* Electron 창 드래그 */
 .app-drag { -webkit-app-region: drag; }
-.no-drag  { -webkit-app-region: no-drag; }
+.no-drag, .no-drag * { -webkit-app-region: no-drag !important; }
+button, input, select, textarea { -webkit-app-region: no-drag !important; pointer-events: auto; }
+
+.window-hide-button {
+  -webkit-app-region: no-drag !important;
+  pointer-events: auto !important;
+  touch-action: none;
+}
 
 /* 로블록스 빨간 시작 버튼 */
 .btn-start {

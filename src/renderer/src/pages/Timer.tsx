@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import type { Settings } from '../../../shared/types'
-import { DEFAULT_SETTINGS } from '../../../shared/types'
+import { useState, useEffect, useRef } from 'react'
+import type { PublicSettings } from '../../../shared/types'
+import { DEFAULT_PUBLIC_SETTINGS } from '../../../shared/types'
+import { isHourAllowed } from '../../../shared/policy'
 import robloxCharacters from '../assets/roblox-characters.jpg'
 
 interface Props {
@@ -30,9 +31,9 @@ function formatTime(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
-function getTodayAllowedMinutes(settings: Settings): number {
+function getTodayAllowedMinutes(settings: PublicSettings): number {
   const limit = isWeekend(new Date()) ? settings.weekendLimit : settings.weekdayLimit
-  return isFinite(limit) && limit > 0 ? limit : DEFAULT_SETTINGS.weekdayLimit
+  return isFinite(limit) && limit > 0 ? limit : DEFAULT_PUBLIC_SETTINGS.weekdayLimit
 }
 
 function ledColors(remainingSeconds: number): { color: string; glow: string } {
@@ -43,13 +44,23 @@ function ledColors(remainingSeconds: number): { color: string; glow: string } {
 }
 
 export default function Timer({ onOpenSettings }: Props) {
-  const [settings, setSettings] = useState<Settings | null>(null)
+  const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [remainingSeconds, setRemainingSeconds] = useState(0)
   const [isRunning, setIsRunning] = useState(false)
   const [sessionStartTime, setSessionStartTime] = useState('')
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
   const [overlayMode, setOverlayMode] = useState<'corner' | 'center-popup' | 'center-countdown' | 'shutdown'>('corner')
   const [autoStartBanner, setAutoStartBanner] = useState(false)
+  const isRunningRef = useRef(false)
+  const dailyExhaustedRef = useRef(false)
+
+  const hideMainWindow = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
+    event?.preventDefault()
+    event?.stopPropagation()
+    window.api?.hideMainWindowNow()
+    void window.api?.hideMainWindow()
+  }
 
   // 당일 세션 상태
   const [dailyRemainingSeconds, setDailyRemainingSeconds] = useState<number | null>(null)
@@ -57,6 +68,9 @@ export default function Timer({ onOpenSettings }: Props) {
   const [sessionsCompleted, setSessionsCompleted] = useState(0)
   const [sessionsPerDay, setSessionsPerDay] = useState(1)
   const [currentSessionActive, setCurrentSessionActive] = useState(false)
+
+  useEffect(() => { isRunningRef.current = isRunning }, [isRunning])
+  useEffect(() => { dailyExhaustedRef.current = dailyExhausted }, [dailyExhausted])
 
   useEffect(() => {
     window.api?.readSettings().then(setSettings)
@@ -73,10 +87,24 @@ export default function Timer({ onOpenSettings }: Props) {
     })
   }
 
+  function syncTimerStatus() {
+    window.api?.timerGetStatus().then(status => {
+      if (status.running && isFinite(status.remainingSeconds) && status.remainingSeconds > 0) {
+        setIsRunning(true)
+        setOverlayMode(status.mode ?? 'corner')
+        setRemainingSeconds(status.remainingSeconds)
+      }
+    })
+  }
+
+  useEffect(() => {
+    syncTimerStatus()
+  }, [])
+
   const handleStartTimer = async (limitMinutes?: number) => {
     const api = window.api
     if (!api) return
-    const s = settings ?? DEFAULT_SETTINGS
+    const s = settings ?? DEFAULT_PUBLIC_SETTINGS
     const limit = limitMinutes ?? getTodayAllowedMinutes(s)
     if (!isFinite(limit) || limit <= 0) return
 
@@ -86,11 +114,21 @@ export default function Timer({ onOpenSettings }: Props) {
 
     const result = await api.startTimer(limit)
 
+    if (result?.blocked) {
+      setSessionStartTime('')
+      setBlockedMessage(result.blocked === 'outside-hours'
+        ? `${s.allowedStartHour}시 ~ ${s.allowedEndHour}시에만 Roblox를 실행할 수 있어요.`
+        : 'Roblox를 시작할 수 없어요.')
+      refreshDailyUsage()
+      return
+    }
+
     // 당일 쿼터 소진으로 거부된 경우
     if (result?.exhausted) {
       setDailyExhausted(true)
       setDailyRemainingSeconds(0)
       setSessionStartTime('')
+      setBlockedMessage('오늘 Roblox 게임 시간을 모두 사용했어요.')
       refreshDailyUsage()
       return
     }
@@ -110,19 +148,20 @@ export default function Timer({ onOpenSettings }: Props) {
     const api = window.api
     if (!api) return
     const removeDetected = api.onRobloxDetected(() => {
-      if (isRunning || dailyExhausted) return
-      const s = settings ?? DEFAULT_SETTINGS
+      if (isRunningRef.current || dailyExhaustedRef.current) return
       const now = new Date()
-      const hour = now.getHours()
-      if (hour >= s.allowedStartHour && hour < s.allowedEndHour) {
+      setSessionStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
+      api.timerGetStatus().then(status => {
+        if (status.running && isFinite(status.remainingSeconds) && status.remainingSeconds > 0) {
+          setIsRunning(true)
+          setOverlayMode(status.mode ?? 'corner')
+          setRemainingSeconds(status.remainingSeconds)
+        }
         setAutoStartBanner(true)
         setTimeout(() => setAutoStartBanner(false), 3000)
-        handleStartTimer()
-      }
+      })
     })
     const removeClosed = api.onRobloxClosed(() => {
-      if (!isRunning) return
-      api.pauseTimer()
       setIsRunning(false)
       setOverlayMode('corner')
       setRemainingSeconds(0)
@@ -130,7 +169,7 @@ export default function Timer({ onOpenSettings }: Props) {
       refreshDailyUsage()
     })
     return () => { removeDetected(); removeClosed() }
-  }, [isRunning, settings, dailyExhausted])
+  }, [])
 
   // 재부팅 후 타이머 복원
   useEffect(() => {
@@ -160,56 +199,57 @@ export default function Timer({ onOpenSettings }: Props) {
 
   useEffect(() => {
     const api = window.api
-    if (!isRunning || !api) return
+    if (!api) return
     return api.onTimerTick(({ remainingSeconds: rs }) => {
-      if (isFinite(rs)) setRemainingSeconds(rs)
+      if (isFinite(rs)) {
+        setIsRunning(true)
+        setRemainingSeconds(rs)
+      }
     })
-  }, [isRunning])
+  }, [])
 
   useEffect(() => {
     const api = window.api
-    if (!isRunning || !api) return
+    if (!api) return
     return api.onTimerWarning(({ minutesLeft }) => {
+      setIsRunning(true)
       const msg = minutesLeft === 0 ? '⏰ 30초 남았어!' : `⚠️ ${minutesLeft}분 남았어!`
       setWarningMessage(msg)
     })
-  }, [isRunning])
+  }, [])
 
   useEffect(() => {
     const api = window.api
-    if (!isRunning || !api) return
-    return api.onTimerExpired(async () => {
+    if (!api) return
+    return api.onTimerExpired(() => {
       setIsRunning(false)
       setOverlayMode('corner')
       setWarningMessage(null)
       refreshDailyUsage()
 
-      if (settings && sessionStartTime) {
-        const now = new Date()
-        const endTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-        const dateStr = now.toISOString().slice(0, 10)
-        const limitMinutes = getTodayAllowedMinutes(settings)
-        await api.appendSession({
-          date: dateStr,
-          startTime: sessionStartTime,
-          endTime,
-          duration: limitMinutes,
-          limitAtSession: limitMinutes,
-          terminated: true,
-        })
-      }
       setRemainingSeconds(0)
       setSessionStartTime('')
     })
-  }, [isRunning, settings, sessionStartTime])
+  }, [])
 
   useEffect(() => {
     const api = window.api
-    if (!isRunning || !api) return
+    if (!api) return
+    return api.onRobloxBlocked(({ message }) => {
+      setBlockedMessage(message)
+      refreshDailyUsage()
+      setTimeout(() => setBlockedMessage(null), 6000)
+    })
+  }, [])
+
+  useEffect(() => {
+    const api = window.api
+    if (!api) return
     return api.onTimerMode(({ mode }) => {
+      if (mode !== 'shutdown') setIsRunning(true)
       setOverlayMode(mode as typeof overlayMode)
     })
-  }, [isRunning])
+  }, [])
 
   useEffect(() => {
     if (!warningMessage) return
@@ -217,12 +257,12 @@ export default function Timer({ onOpenSettings }: Props) {
     return () => clearTimeout(t)
   }, [warningMessage])
 
-  const displaySettings = settings ?? DEFAULT_SETTINGS
+  const displaySettings = settings ?? DEFAULT_PUBLIC_SETTINGS
   const todayLimitMinutes = getTodayAllowedMinutes(displaySettings)
   const dayType = isWeekend(new Date()) ? '주말' : '평일'
   const now = new Date()
   const hour = now.getHours()
-  const isStartable = hour >= displaySettings.allowedStartHour && hour < displaySettings.allowedEndHour
+  const isStartable = isHourAllowed(hour, displaySettings.allowedStartHour, displaySettings.allowedEndHour)
 
   // 표시할 남은 시간 (분 단위)
   const displayRemainingSeconds = dailyRemainingSeconds ?? (todayLimitMinutes * 60)
@@ -350,11 +390,29 @@ export default function Timer({ onOpenSettings }: Props) {
 
   // ── 대기 모드: 메인 화면 ─────────────────────────────────────────────────
   return (
-    <div className="app-drag flex flex-col h-screen w-screen overflow-hidden select-none"
+      <div className="no-drag flex flex-col h-screen w-screen overflow-hidden select-none"
       style={{
         background: 'linear-gradient(180deg, #4FC3F7 0%, #0288D1 100%)',
         borderRadius: '12px',
+        position: 'relative',
       }}>
+
+      <button
+        type="button"
+        className="no-drag window-hide-button"
+        onPointerDown={hideMainWindow}
+        onClick={hideMainWindow}
+        aria-label="창 숨기기"
+        style={{
+          position: 'fixed', top: 8, right: 8, zIndex: 2147483647,
+          width: 52, height: 52, borderRadius: '50%',
+          border: '1px solid rgba(255,255,255,0.45)',
+          background: 'rgba(0,0,0,0.35)', color: '#fff',
+          fontSize: '22px', lineHeight: '48px', cursor: 'pointer', pointerEvents: 'auto',
+        }}
+      >
+        –
+      </button>
 
       {/* 자동 감지 배너 */}
       {autoStartBanner && (
@@ -366,8 +424,17 @@ export default function Timer({ onOpenSettings }: Props) {
         </div>
       )}
 
+      {blockedMessage && (
+        <div className="no-drag absolute top-12 left-4 right-4 z-10 flex items-center justify-center rounded-xl px-3 py-2"
+          style={{ background: 'rgba(232,0,28,0.86)' }}>
+          <span style={{ color: '#fff', fontSize: '13px', fontWeight: 800, textAlign: 'center' }}>
+            {blockedMessage}
+          </span>
+        </div>
+      )}
+
       {/* 상단: 로블록스 헤더 */}
-      <div className="app-drag flex items-center justify-center gap-2 pt-5 pb-1" style={{ flexShrink: 0 }}>
+      <div className="no-drag flex items-center justify-center gap-2 pt-5 pb-1" style={{ flexShrink: 0 }}>
         <div style={{
           width: 32, height: 32, borderRadius: '50%',
           background: '#E8001C',
@@ -387,7 +454,7 @@ export default function Timer({ onOpenSettings }: Props) {
       </div>
 
       {/* 타이틀 */}
-      <div className="app-drag text-center pt-1 pb-2" style={{ flexShrink: 0 }}>
+      <div className="no-drag text-center pt-1 pb-2" style={{ flexShrink: 0 }}>
         <h1 style={{
           fontFamily: "'Black Han Sans', sans-serif",
           fontSize: '40px',
@@ -407,7 +474,17 @@ export default function Timer({ onOpenSettings }: Props) {
           margin: '4px 0 0 0',
           textTransform: 'uppercase',
         }}>
-          My Pact for My Future
+          My Pact
+        </p>
+        <p style={{
+          color: 'rgba(255,255,255,0.72)',
+          fontSize: '10px',
+          fontWeight: 700,
+          letterSpacing: '1px',
+          margin: '2px 0 0 0',
+          textShadow: '0 1px 2px rgba(0,0,0,0.25)',
+        }}>
+          ver 0.50
         </p>
       </div>
 
@@ -506,7 +583,7 @@ export default function Timer({ onOpenSettings }: Props) {
           </button>
         )}
 
-        {!dailyExhausted && (
+        {import.meta.env.DEV && !dailyExhausted && (
           <button
             className="no-drag"
             onClick={() => handleStartTimer(2)}

@@ -2,15 +2,6 @@ import { useState, useEffect } from 'react'
 
 type Stage = 'pin' | 'admin'
 
-function sha256(text: string): Promise<string> {
-  const buf = new TextEncoder().encode(text)
-  return crypto.subtle.digest('SHA-256', buf).then(hash => {
-    return Array.from(new Uint8Array(hash))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('')
-  })
-}
-
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -25,6 +16,7 @@ function PinStage({ onSuccess }: { onSuccess: () => void }) {
   const [error, setError] = useState('')
   const [attempts, setAttempts] = useState(0)
   const [lockoutSeconds, setLockoutSeconds] = useState(0)
+  const [verifying, setVerifying] = useState(false)
 
   useEffect(() => {
     if (lockoutSeconds <= 0) return
@@ -38,48 +30,61 @@ function PinStage({ onSuccess }: { onSuccess: () => void }) {
   }, [lockoutSeconds])
 
   const handleDigit = (d: string) => {
-    if (lockoutSeconds > 0 || pin.length >= 4) return
+    if (lockoutSeconds > 0 || verifying || pin.length >= 4) return
     setPin(p => p + d)
   }
 
-  const handleBack = () => setPin(p => p.slice(0, -1))
+  const handleBack = () => { if (!verifying) setPin(p => p.slice(0, -1)) }
 
-  const handleConfirm = async () => {
-    if (pin.length !== 4 || lockoutSeconds > 0) return
-    const hash = await sha256(pin)
-    const ok = await window.api?.adminVerifyPassword(hash)
-    if (ok) {
-      onSuccess()
-    } else {
-      const next = attempts + 1
-      setAttempts(next)
-      setPin('')
-      if (next >= 5) {
-        setAttempts(0)
-        setLockoutSeconds(30)
-        setError('5회 실패. 30초 후 재시도.')
+  const handleConfirm = async (candidate = pin) => {
+    if (candidate.length !== 4 || lockoutSeconds > 0 || verifying) return
+    setVerifying(true)
+    try {
+      const ok = await window.api?.adminVerifyPassword(candidate)
+      if (ok) {
+        onSuccess()
       } else {
-        setError(`비밀번호가 틀렸어요. (${next}/5)`)
-        setTimeout(() => setError(''), 2000)
+        const next = attempts + 1
+        setAttempts(next)
+        setPin('')
+        if (next >= 5) {
+          setAttempts(0)
+          setLockoutSeconds(30)
+          setError('5회 실패. 30초 후 재시도.')
+        } else {
+          setError(`비밀번호가 틀렸어요. (${next}/5)`)
+          setTimeout(() => setError(''), 2000)
+        }
       }
+    } catch {
+      setPin('')
+      setError('인증에 실패했어요. 잠시 후 다시 시도하세요.')
+    } finally {
+      setVerifying(false)
     }
   }
+
+  useEffect(() => {
+    if (pin.length === 4 && lockoutSeconds <= 0 && !verifying) {
+      void handleConfirm(pin)
+    }
+  }, [pin, lockoutSeconds, verifying])
 
   // 물리 키보드 숫자패드 입력 지원
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (lockoutSeconds > 0) return
+      if (lockoutSeconds > 0 || verifying) return
       if (/^[0-9]$/.test(e.key)) {
         if (pin.length < 4) setPin(p => p + e.key)
       } else if (e.key === 'Backspace') {
         setPin(p => p.slice(0, -1))
       } else if (e.key === 'Enter' && pin.length === 4) {
-        handleConfirm()
+        void handleConfirm()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [lockoutSeconds, pin, attempts, onSuccess])
+  }, [lockoutSeconds, pin, attempts, onSuccess, verifying])
 
   const isLocked = lockoutSeconds > 0
 
@@ -122,14 +127,14 @@ function PinStage({ onSuccess }: { onSuccess: () => void }) {
         gap: '10px', width: '216px',
       }}>
         {['1','2','3','4','5','6','7','8','9'].map(d => (
-          <button key={d} onClick={() => handleDigit(d)} disabled={isLocked}
+          <button key={d} onClick={() => handleDigit(d)} disabled={isLocked || verifying}
             style={{
               background: 'rgba(255,255,255,0.1)',
               border: '1px solid rgba(255,255,255,0.2)',
               borderRadius: '12px', height: '56px',
               color: '#fff', fontSize: '22px', fontWeight: 700,
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              opacity: isLocked ? 0.4 : 1,
+              cursor: isLocked || verifying ? 'not-allowed' : 'pointer',
+              opacity: isLocked || verifying ? 0.4 : 1,
               transition: 'background 0.1s',
             }}
             onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.22)' }}
@@ -139,35 +144,35 @@ function PinStage({ onSuccess }: { onSuccess: () => void }) {
           </button>
         ))}
         {/* 마지막 줄: 지우기 / 0 / 확인 */}
-        <button onClick={handleBack} disabled={isLocked}
+        <button onClick={handleBack} disabled={isLocked || verifying}
           style={{
             background: 'rgba(255,255,255,0.07)',
             border: '1px solid rgba(255,255,255,0.15)',
             borderRadius: '12px', height: '56px',
             color: 'rgba(255,255,255,0.7)', fontSize: '20px',
-            cursor: isLocked ? 'not-allowed' : 'pointer',
-            opacity: isLocked ? 0.4 : 1,
+            cursor: isLocked || verifying ? 'not-allowed' : 'pointer',
+            opacity: isLocked || verifying ? 0.4 : 1,
           }}>
           ⌫
         </button>
-        <button onClick={() => handleDigit('0')} disabled={isLocked}
+        <button onClick={() => handleDigit('0')} disabled={isLocked || verifying}
           style={{
             background: 'rgba(255,255,255,0.1)',
             border: '1px solid rgba(255,255,255,0.2)',
             borderRadius: '12px', height: '56px',
             color: '#fff', fontSize: '22px', fontWeight: 700,
-            cursor: isLocked ? 'not-allowed' : 'pointer',
-            opacity: isLocked ? 0.4 : 1,
+            cursor: isLocked || verifying ? 'not-allowed' : 'pointer',
+            opacity: isLocked || verifying ? 0.4 : 1,
           }}>
           0
         </button>
-        <button onClick={handleConfirm} disabled={isLocked || pin.length !== 4}
+        <button onClick={() => void handleConfirm()} disabled={isLocked || verifying || pin.length !== 4}
           style={{
-            background: pin.length === 4 && !isLocked ? '#E8001C' : 'rgba(255,255,255,0.07)',
+            background: pin.length === 4 && !isLocked && !verifying ? '#E8001C' : 'rgba(255,255,255,0.07)',
             border: '1px solid rgba(255,255,255,0.2)',
             borderRadius: '12px', height: '56px',
             color: '#fff', fontSize: '20px', fontWeight: 700,
-            cursor: (isLocked || pin.length !== 4) ? 'not-allowed' : 'pointer',
+            cursor: (isLocked || verifying || pin.length !== 4) ? 'not-allowed' : 'pointer',
             transition: 'background 0.15s',
           }}>
           ✓
@@ -198,6 +203,8 @@ function AdminStage() {
   const [pwMsg, setPwMsg] = useState('')
   const [pwError, setPwError] = useState(false)
   const [addMsg, setAddMsg] = useState('')
+  const [manualMinutes, setManualMinutes] = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
 
   useEffect(() => {
     const api = window.api
@@ -216,11 +223,39 @@ function AdminStage() {
     return api.onTimerTick(({ remainingSeconds: rs }) => setRemainingSeconds(rs))
   }, [timerRunning])
 
-  const handleAddTime = async (minutes: number) => {
-    await window.api?.timerAddTime(minutes)
-    setRemainingSeconds(s => s + minutes * 60)
-    setAddMsg(`+${minutes}분 추가됐어요`)
-    setTimeout(() => setAddMsg(''), 2000)
+  const refreshTimerStatus = async () => {
+    const status = await window.api?.timerGetStatus()
+    if (!status) return
+    setTimerRunning(status.running)
+    setRemainingSeconds(status.remainingSeconds)
+  }
+
+  const handleAdjustTime = async (minutes: number) => {
+    if (!Number.isInteger(minutes) || minutes === 0) {
+      setAddMsg('0이 아닌 분 단위로 입력해주세요')
+      setTimeout(() => setAddMsg(''), 2000)
+      return
+    }
+    try {
+      const result = await window.api?.timerAdjustTime(minutes)
+      if (result && isFinite(result.remainingSeconds)) {
+        setRemainingSeconds(result.remainingSeconds)
+        setTimerRunning(result.remainingSeconds > 0)
+      } else {
+        await refreshTimerStatus()
+      }
+      setAddMsg(minutes > 0 ? `+${minutes}분 추가됐어요` : `${minutes}분 차감됐어요`)
+      setManualMinutes('')
+      setTimeout(() => setAddMsg(''), 2000)
+    } catch {
+      setAddMsg('시간 변경에 실패했어요')
+      setTimeout(() => setAddMsg(''), 2000)
+    }
+  }
+
+  const handleManualAdjust = async () => {
+    const minutes = Number(manualMinutes)
+    await handleAdjustTime(minutes)
   }
 
   const handleStopTimer = async () => {
@@ -236,33 +271,47 @@ function AdminStage() {
   }
 
   const handleChangePassword = async () => {
+    if (changingPassword) return
     if (!pwNew || pwNew !== pwConfirm) {
       setPwMsg('새 비밀번호가 일치하지 않아요')
       setPwError(true)
       setTimeout(() => setPwMsg(''), 2500)
       return
     }
-    if (pwNew.length < 4) {
-      setPwMsg('4자리 이상 입력하세요')
+    if (!/^\d{4}$/.test(pwNew)) {
+      setPwMsg('새 비밀번호는 숫자 4자리여야 해요')
       setPwError(true)
       setTimeout(() => setPwMsg(''), 2500)
       return
     }
-    const currentHash = await sha256(pwCurrent)
-    const ok = await window.api?.adminVerifyPassword(currentHash)
-    if (!ok) {
-      setPwMsg('현재 비밀번호가 틀렸어요')
+    setChangingPassword(true)
+    try {
+      const ok = await window.api?.adminVerifyPassword(pwCurrent)
+      if (!ok) {
+        setPwMsg('현재 비밀번호가 틀렸어요')
+        setPwError(true)
+        setTimeout(() => setPwMsg(''), 2500)
+        return
+      }
+      await window.api?.adminChangePassword(pwCurrent, pwNew)
+      setPwCurrent(''); setPwNew(''); setPwConfirm('')
+      setPwMsg('비밀번호가 변경됐어요')
+      setPwError(false)
+      setTimeout(() => setPwMsg(''), 3000)
+    } catch {
+      setPwMsg('비밀번호 변경에 실패했어요')
       setPwError(true)
       setTimeout(() => setPwMsg(''), 2500)
-      return
+    } finally {
+      setChangingPassword(false)
     }
-    const newHash = await sha256(pwNew)
-    await window.api?.adminChangePassword(newHash, pwNew)
-    setPwCurrent(''); setPwNew(''); setPwConfirm('')
-    setPwMsg('비밀번호가 변경됐어요')
-    setPwError(false)
-    setTimeout(() => setPwMsg(''), 3000)
   }
+
+  useEffect(() => {
+    if (/^\d{4}$/.test(pwCurrent) && /^\d{4}$/.test(pwNew) && /^\d{4}$/.test(pwConfirm)) {
+      void handleChangePassword()
+    }
+  }, [pwCurrent, pwNew, pwConfirm])
 
   const inputStyle: React.CSSProperties = {
     background: 'rgba(255,255,255,0.08)',
@@ -286,14 +335,24 @@ function AdminStage() {
       {/* 헤더 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
         <h1 style={{ color: '#fff', fontSize: '20px', fontWeight: 800 }}>관리자 설정</h1>
-        <button onClick={() => window.api?.adminCloseWindow()}
-          style={{
-            background: 'rgba(255,255,255,0.1)', border: 'none',
-            borderRadius: '8px', width: '32px', height: '32px',
-            color: '#fff', fontSize: '18px', cursor: 'pointer',
-          }}>
-          ×
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" onClick={() => { window.api?.showMainWindow(); window.api?.adminCloseWindow() }}
+            style={{
+              background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)',
+              borderRadius: '8px', height: '32px', padding: '0 10px',
+              color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+            }}>
+            메인
+          </button>
+          <button type="button" onClick={() => window.api?.adminCloseWindow()}
+            style={{
+              background: 'rgba(255,255,255,0.1)', border: 'none',
+              borderRadius: '8px', width: '32px', height: '32px',
+              color: '#fff', fontSize: '18px', cursor: 'pointer',
+            }}>
+            ×
+          </button>
+        </div>
       </div>
 
       {/* 타이머 상태 */}
@@ -317,12 +376,13 @@ function AdminStage() {
             </p>
             {addMsg && <p style={{ color: '#00e676', fontSize: '13px', marginTop: '6px' }}>{addMsg}</p>}
 
-            {/* 시간 추가 버튼 */}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-              {[15, 30, 60].map(m => (
-                <button key={m} onClick={() => handleAddTime(m)}
+            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: '12px', fontWeight: 700, marginTop: '12px', marginBottom: '6px' }}>
+              시간 추가
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
+              {[5, 10, 15, 30, 60].map(m => (
+                <button key={m} onClick={() => handleAdjustTime(m)}
                   style={{
-                    flex: 1,
                     background: 'rgba(0,230,118,0.15)',
                     border: '1px solid rgba(0,230,118,0.3)',
                     borderRadius: '8px', padding: '8px 0',
@@ -332,6 +392,48 @@ function AdminStage() {
                   +{m}분
                 </button>
               ))}
+            </div>
+
+            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: '12px', fontWeight: 700, marginTop: '10px', marginBottom: '6px' }}>
+              시간 차감
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
+              {[5, 10, 15, 30, 60].map(m => (
+                <button key={m} onClick={() => handleAdjustTime(-m)}
+                  style={{
+                    background: 'rgba(255,193,7,0.14)',
+                    border: '1px solid rgba(255,193,7,0.32)',
+                    borderRadius: '8px', padding: '8px 0',
+                    color: '#ffd54f', fontSize: '12px', fontWeight: 800,
+                    cursor: 'pointer',
+                  }}>
+                  -{m}분
+                </button>
+              ))}
+            </div>
+
+            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: '12px', fontWeight: 700, marginTop: '10px', marginBottom: '6px' }}>
+              직접 입력
+            </p>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input
+                type="number"
+                value={manualMinutes}
+                placeholder="예: 25 또는 -10"
+                onChange={e => setManualMinutes(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void handleManualAdjust() }}
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button onClick={() => void handleManualAdjust()}
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  border: '1px solid rgba(255,255,255,0.22)',
+                  borderRadius: '8px', padding: '0 12px',
+                  color: '#fff', fontSize: '13px', fontWeight: 800,
+                  cursor: 'pointer',
+                }}>
+                적용
+              </button>
             </div>
 
             {/* 타이머 중지 */}
@@ -404,19 +506,25 @@ function AdminStage() {
         <input
           type="password" placeholder="현재 비밀번호"
           value={pwCurrent}
-          onChange={e => setPwCurrent(e.target.value)}
+          maxLength={4}
+          inputMode="numeric"
+          onChange={e => setPwCurrent(e.target.value.replace(/\D/g, '').slice(0, 4))}
           style={inputStyle}
         />
         <input
           type="password" placeholder="새 비밀번호"
           value={pwNew}
-          onChange={e => setPwNew(e.target.value)}
+          maxLength={4}
+          inputMode="numeric"
+          onChange={e => setPwNew(e.target.value.replace(/\D/g, '').slice(0, 4))}
           style={inputStyle}
         />
         <input
           type="password" placeholder="새 비밀번호 확인"
           value={pwConfirm}
-          onChange={e => setPwConfirm(e.target.value)}
+          maxLength={4}
+          inputMode="numeric"
+          onChange={e => setPwConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
           style={inputStyle}
         />
         {pwMsg && (
@@ -424,13 +532,13 @@ function AdminStage() {
             {pwMsg}
           </p>
         )}
-        <button onClick={handleChangePassword}
+        <button onClick={() => void handleChangePassword()} disabled={changingPassword}
           style={{
             background: 'rgba(255,255,255,0.1)',
             border: '1px solid rgba(255,255,255,0.2)',
             borderRadius: '8px', padding: '9px',
             color: '#fff', fontSize: '14px', fontWeight: 700,
-            cursor: 'pointer',
+            cursor: changingPassword ? 'wait' : 'pointer',
           }}>
           변경
         </button>

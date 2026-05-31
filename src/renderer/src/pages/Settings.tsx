@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import type { Settings } from '../../../shared/types'
-import { DEFAULT_SETTINGS } from '../../../shared/types'
+import type { PublicSettings } from '../../../shared/types'
+import { DEFAULT_PUBLIC_SETTINGS } from '../../../shared/types'
 import robloxCharacters from '../assets/roblox-characters.jpg'
 
 interface Props {
@@ -8,9 +8,16 @@ interface Props {
 }
 
 export default function SettingsPage({ onBack }: Props) {
-  const [settings, setSettings] = useState<Settings>({ ...DEFAULT_SETTINGS })
+  const [settings, setSettings] = useState<PublicSettings>({ ...DEFAULT_PUBLIC_SETTINGS })
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+
+  const hideMainWindow = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
+    event?.preventDefault()
+    event?.stopPropagation()
+    window.api?.hideMainWindowNow()
+    void window.api?.hideMainWindow()
+  }
 
   useEffect(() => {
     window.api?.readSettings().then(setSettings)
@@ -24,7 +31,18 @@ export default function SettingsPage({ onBack }: Props) {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch {
-      setError('저장에 실패했어요.')
+      setError('저장에 실패했어요. 부모 관리자 Windows 계정에서 다시 시도해주세요.')
+      setTimeout(() => setError(''), 3000)
+    }
+  }
+
+  const handleShutdown = async () => {
+    const api = window.api
+    if (!api) return
+    try {
+      await api.shutdownApp()
+    } catch {
+      setError('앱 종료에 실패했어요. 관리자 PIN 인증 후 다시 시도해주세요.')
       setTimeout(() => setError(''), 3000)
     }
   }
@@ -45,15 +63,32 @@ export default function SettingsPage({ onBack }: Props) {
   )
 
   return (
-    <div className="app-drag flex flex-col h-screen w-screen overflow-hidden"
+    <div className="no-drag flex flex-col h-screen w-screen overflow-hidden"
       style={{
         background: 'linear-gradient(180deg, #4FC3F7 0%, #0288D1 100%)',
         borderRadius: '12px',
         position: 'relative',
       }}>
 
+      <button
+        type="button"
+        className="no-drag window-hide-button"
+        onPointerDown={hideMainWindow}
+        onClick={hideMainWindow}
+        aria-label="창 숨기기"
+        style={{
+          position: 'fixed', top: 8, right: 8, zIndex: 2147483647,
+          width: 52, height: 52, borderRadius: '50%',
+          border: '1px solid rgba(255,255,255,0.45)',
+          background: 'rgba(0,0,0,0.35)', color: '#fff',
+          fontSize: '22px', lineHeight: '48px', cursor: 'pointer', pointerEvents: 'auto',
+        }}
+      >
+        –
+      </button>
+
       {/* 헤더 */}
-      <div className="app-drag flex items-center gap-3 px-5 pt-6 pb-3">
+      <div className="no-drag flex items-center gap-3 px-5 pt-6 pb-3">
         <div style={{
           width: 28, height: 28, borderRadius: '50%',
           background: '#E8001C',
@@ -69,7 +104,7 @@ export default function SettingsPage({ onBack }: Props) {
         }}>ROBLOX</span>
       </div>
 
-      <div className="app-drag text-center pb-4">
+      <div className="no-drag text-center pb-4">
         <h2 style={{
           fontFamily: "'Black Han Sans', sans-serif",
           fontSize: '28px', color: '#1a1a2e',
@@ -161,7 +196,7 @@ export default function SettingsPage({ onBack }: Props) {
 
         <Row label="종료 시각" unit="시">
           <input
-            type="number" min={0} max={23}
+            type="number" min={0} max={24}
             value={settings.allowedEndHour}
             onChange={(e) => setSettings(s => ({ ...s, allowedEndHour: Number(e.target.value) }))}
             className="setting-input"
@@ -202,6 +237,18 @@ export default function SettingsPage({ onBack }: Props) {
           }}
         >
           ← 돌아가기
+        </button>
+        <button
+          onClick={handleShutdown}
+          style={{
+            background: 'rgba(0,0,0,0.35)',
+            border: '1px solid rgba(255,255,255,0.4)',
+            borderRadius: '14px', padding: '10px',
+            color: '#fff', fontSize: '14px',
+            cursor: 'pointer', fontWeight: 700,
+          }}
+        >
+          앱 실행 종료 (워치독 종료)
         </button>
       </div>
 
