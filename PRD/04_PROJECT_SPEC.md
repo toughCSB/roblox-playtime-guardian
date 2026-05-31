@@ -1,4 +1,4 @@
-# My Pact for My Future — 프로젝트 스펙
+# My Pact — 프로젝트 스펙
 
 > AI가 코드를 짤 때 지켜야 할 규칙과 절대 하면 안 되는 것.
 > 이 문서를 AI에게 항상 함께 공유하세요.
@@ -32,39 +32,26 @@
 ## 프로젝트 구조
 
 ```
-my-pact-for-my-future/
-├── electron-app/           # Electron 타이머 앱
-│   ├── src/
-│   │   ├── main/           # Electron main process
-│   │   │   ├── main.ts     # 앱 진입점, 창 생성
-│   │   │   ├── ipc.ts      # IPC 핸들러 (파일 I/O, 프로세스 제어)
-│   │   │   └── fileStore.ts # settings.json, sessions.json 읽기/쓰기
-│   │   └── renderer/       # React UI (Vite)
-│   │       ├── App.tsx
-│   │       ├── pages/
-│   │       │   ├── Timer.tsx    # 메인 타이머 화면
-│   │       │   └── Settings.tsx # 설정 화면
-│   │       └── components/
-│   │           └── WarningPopup.tsx
-│   ├── package.json
-│   └── vite.config.ts
-│
-├── dashboard/              # Next.js 웹 대시보드
-│   ├── app/
-│   │   ├── page.tsx        # 오늘 현황
-│   │   ├── settings/
-│   │   │   └── page.tsx    # 설정 관리
-│   │   └── api/
-│   │       ├── sessions/
-│   │       │   └── route.ts # sessions.json 읽기
-│   │       └── settings/
-│   │           └── route.ts # settings.json 읽기/쓰기
-│   ├── components/
-│   │   └── WeeklyChart.tsx  # Recharts 주간 바 그래프
-│   └── package.json
-│
+roblox-playtime-guardian/
+├── src/
+│   ├── main/               # Electron main process
+│   │   ├── main.ts         # 트레이, 창, 타이머, Roblox 감지/종료
+│   │   ├── ipc.ts          # IPC 핸들러 (설정, 세션, 관리자 PIN)
+│   │   ├── adminAuth.ts    # main-process 관리자 세션
+│   │   └── fileStore.ts    # ProgramData JSON 읽기/쓰기
+│   ├── preload/            # 안전한 renderer API 노출
+│   └── renderer/src/       # React UI (Vite)
+│       ├── App.tsx
+│       └── pages/
+│           ├── Timer.tsx
+│           ├── Settings.tsx
+│           └── AdminPanel.tsx
+├── build/installer.nsh     # NSIS 커스텀 설치/ACL/자동시작
+├── resources/              # 아이콘, watchdog 스크립트
+├── tests/                  # Vitest 정책 테스트
 ├── PRD/                    # 이 문서들
-└── 01-idea-brief.md
+├── package.json
+└── electron.vite.config.ts
 ```
 
 ---
@@ -72,13 +59,19 @@ my-pact-for-my-future/
 ## 데이터 저장 경로
 
 ```
-~/.mypact/
+%ProgramData%\MyPact\
 ├── settings.json
-└── sessions.json
+├── Admin\
+│   └── admin-secret.json
+└── Data\
+    ├── sessions.json
+    ├── timer-state.json
+    └── daily-usage.json
 ```
 
-- macOS: `/Users/{username}/.mypact/`
-- Windows: `C:\Users\{username}\.mypact\`
+- Windows: `%ProgramData%\MyPact\`
+- 설정 파일과 `Data\` 런타임 파일은 표준 사용자 읽기 전용, 관리자/SYSTEM 쓰기 가능
+- 표준 사용자 세션에서 상태 저장이 실패해도 실행 중인 타이머 집행은 메모리 상태로 계속 진행
 - 앱 최초 실행 시 폴더 자동 생성
 
 ---
@@ -100,9 +93,9 @@ my-pact-for-my-future/
 
 - [ ] 변경하기 전에 계획을 먼저 보여줘
 - [ ] 파일 읽기 실패 시 기본값으로 폴백 (weekdayLimit: 30, weekendLimit: 60)
-- [ ] 경고 팝업은 사용자가 닫을 수 있게 하되, 3초 후 자동 소멸도 지원
+- [ ] 경고 팝업은 4초 후 자동으로 코너 위치로 복귀
 - [ ] 시간 표시는 MM:SS 또는 HH:MM:SS 형식으로 명확하게
-- [ ] 강제 종료 전 마지막 경고 팝업 (15초) 표시 후 카운트다운
+- [ ] 강제 종료 전 30초 경고와 10초 중앙 카운트다운 표시
 - [ ] sessions.json append 시 uuid 자동 생성
 
 ---
@@ -111,18 +104,14 @@ my-pact-for-my-future/
 
 ```bash
 # Electron 앱 개발 모드 실행
-cd electron-app
 npm install
 npm run dev
 
-# 웹 대시보드 개발 모드 실행
-cd dashboard
-npm install
-npm run dev
-# http://localhost:3000
+# 정책 헬퍼 테스트
+npm test
 
 # 타입 체크
-npx tsc --noEmit
+npm run typecheck
 
 # Electron 앱 빌드
 npm run build
@@ -143,9 +132,9 @@ function killRoblox() {
     })
   } else if (process.platform === 'win32') {
     // Windows
-    exec('taskkill /F /IM RobloxPlayerBeta.exe', (err) => {
-      if (err) console.log('Roblox not running or already closed')
-    })
+    for (const imageName of ['RobloxPlayer.exe', 'RobloxPlayerBeta.exe']) {
+      exec(`taskkill /F /IM ${imageName}`)
+    }
   }
 }
 ```
@@ -166,6 +155,6 @@ function killRoblox() {
 
 ## [NEEDS CLARIFICATION]
 
-- [ ] 앱 자동 시작: 부팅 시 Electron 앱 자동 실행 여부 (Login Item 등록)
-- [ ] 트레이 아이콘: 앱 닫아도 트레이에서 타이머 확인 가능 여부
-- [ ] 부모 설정 PIN 보호: 자녀가 설정을 바꾸는 것을 막을 PIN 필요 여부
+- [x] 앱 자동 시작: Windows HKLM Run + Scheduled Task 등록
+- [x] 트레이 아이콘: 앱 닫아도 트레이에서 타이머 확인 가능
+- [x] 부모 설정 PIN 보호: main-process 관리자 세션으로 설정 변경 보호
