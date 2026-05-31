@@ -7,6 +7,7 @@ export interface Settings {
   allowedEndHour: number
   adminPasswordHash: string
   resumeTimerOnRestart: boolean
+  requireApprovalBeforeStart: boolean // 새 게임 타임 시작 전 부모 PIN 승인 필요
   updatedAt: string
 }
 
@@ -41,7 +42,7 @@ export interface TimerStartResult {
   resumed: boolean
   remainingSeconds: number
   exhausted?: boolean
-  blocked?: 'outside-hours' | 'invalid-limit'
+  blocked?: 'outside-hours' | 'invalid-limit' | 'approval-required'
 }
 
 export interface TimerStatus {
@@ -71,6 +72,7 @@ export const DEFAULT_SETTINGS: Settings = {
   allowedEndHour: 22,
   adminPasswordHash: DEFAULT_PASSWORD_HASH,
   resumeTimerOnRestart: true,
+  requireApprovalBeforeStart: true,
   updatedAt: new Date().toISOString(),
 }
 
@@ -82,5 +84,6 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   allowedStartHour: 16,
   allowedEndHour: 22,
   resumeTimerOnRestart: true,
+  requireApprovalBeforeStart: true,
   updatedAt: new Date().toISOString(),
 }

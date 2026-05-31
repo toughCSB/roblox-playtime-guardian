@@ -9,6 +9,7 @@ import {
   readDailyUsage, writeDailyUsage, appendSession,
 } from './fileStore'
 import { isHourAllowed } from '../shared/policy'
+import { shouldRequireApprovalForStart } from '../shared/startPolicy'
 import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
 import type { DailyUsage, Session, TimerState } from '../shared/types'
 
@@ -41,8 +42,9 @@ let timerDisplay: Electron.Display | null = null
 let volatileDailyUsage: DailyUsage | null = null
 const startHidden = process.argv.includes('--start-hidden')
 let robloxBaselineCaptured = false
+let parentApprovalGrantedForNextSession = false
 const COMMON_APP_DATA_DIR = process.platform === 'win32' ? 'C:\\ProgramData' : app.getPath('userData')
-const WATCHDOG_DISABLED_PATH = join(COMMON_APP_DATA_DIR, 'MyPact', 'watchdog-disabled.flag')
+const WATCHDOG_DISABLED_PATH = join(COMMON_APP_DATA_DIR, 'MyPact', 'Admin', 'watchdog-disabled.flag')
 
 function getDailyUsage(): DailyUsage | null {
   if (volatileDailyUsage) {
@@ -226,21 +228,41 @@ function pauseActiveTimer(): void {
   hideToTray()
 }
 
-function startTimerForDetectedRoblox(): void {
-  if (!mainWindow || timerStart !== null) return
+function approveNextSession(): void {
+  parentApprovalGrantedForNextSession = true
+}
+
+function consumeParentApprovalForFreshSession(): void {
+  parentApprovalGrantedForNextSession = false
+}
+
+function hasParentApprovalForFreshSession(settings = readSettings()): boolean {
+  return !shouldRequireApprovalForStart(settings, { hasActiveSession: false }) || parentApprovalGrantedForNextSession
+}
+
+function startTimerForDetectedRoblox(): boolean {
+  if (!mainWindow || timerStart !== null) return false
   const today = getLocalDateString()
   const { perSessionMinutes, sessionsPerDay } = getTodaySessionCount()
   const usage = getDailyUsage()
   const usageToday = usage && usage.date === today ? usage : null
   if (usageToday && usageToday.currentSessionRemainingMs > 0) {
     startTimer(mainWindow, perSessionMinutes, usageToday.currentSessionRemainingMs)
-    return
+    return true
   }
   if ((usageToday?.sessionsCompleted ?? 0) >= sessionsPerDay) {
     killRoblox()
-    return
+    return false
   }
+  const settings = readSettings()
+  if (!hasParentApprovalForFreshSession(settings)) {
+    killRoblox()
+    showRobloxBlocked('approval-required')
+    return false
+  }
+  consumeParentApprovalForFreshSession()
   startTimer(mainWindow, perSessionMinutes)
+  return true
 }
 
 function getActiveDisplay(): Electron.Display {
@@ -279,12 +301,14 @@ function hideToTray(): void {
   }
 }
 
-function showRobloxBlocked(reason: 'outside-hours' | 'daily-exhausted'): void {
+function showRobloxBlocked(reason: 'outside-hours' | 'daily-exhausted' | 'approval-required'): void {
   if (!mainWindow) return
   const settings = readSettings()
   const message = reason === 'outside-hours'
     ? `지금은 Roblox 허용 시간이 아닙니다. (${settings.allowedStartHour}시 ~ ${settings.allowedEndHour}시)`
-    : '오늘 Roblox 게임 시간을 모두 사용했습니다.'
+    : reason === 'approval-required'
+      ? '부모님 PIN 승인 후 Roblox를 시작할 수 있습니다.'
+      : '오늘 Roblox 게임 시간을 모두 사용했습니다.'
   const key = `${reason}:${getLocalDateString()}:${new Date().getHours()}:${new Date().getMinutes()}`
   if (lastRobloxBlockedReason === key) return
   lastRobloxBlockedReason = key
@@ -447,6 +471,12 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
 
   timerInterval = setInterval(() => {
     if (timerStart === null || timerLimitMs === null) return
+
+    if (!isAllowedHour()) {
+      completeActiveTimer(win)
+      showRobloxBlocked('outside-hours')
+      return
+    }
 
     const elapsed = Date.now() - timerStart
     const remaining = Math.max(0, timerLimitMs - elapsed)
@@ -632,9 +662,9 @@ function startRobloxDetection(): void {
       const isRunning = /RobloxPlayer(Beta)?\.exe/i.test(stdout)
 
       if (!robloxBaselineCaptured) {
-        robloxRunning = isRunning
         robloxBaselineCaptured = true
-        return
+        robloxRunning = false
+        if (!isRunning) return
       }
 
       if (isRunning && !robloxRunning) {
@@ -651,9 +681,9 @@ function startRobloxDetection(): void {
           return
         }
 
-        robloxRunning = true
-        mainWindow?.webContents.send('roblox:detected')
-        startTimerForDetectedRoblox()
+        const started = startTimerForDetectedRoblox()
+        robloxRunning = started
+        if (started) mainWindow?.webContents.send('roblox:detected')
       } else if (!isRunning && robloxRunning) {
         robloxRunning = false
         pauseActiveTimer()
@@ -731,7 +761,15 @@ function createWindow(): void {
       return { resumed: false, remainingSeconds: 0, exhausted: true }
     }
 
+    const settings = readSettings()
+    if (!hasParentApprovalForFreshSession(settings)) {
+      killRoblox()
+      showRobloxBlocked('approval-required')
+      return { resumed: false, remainingSeconds: 0, exhausted: false, blocked: 'approval-required' }
+    }
+
     // 새 세션 시작 (fresh) — daily-usage는 세션 완료 시 업데이트
+    consumeParentApprovalForFreshSession()
     startTimer(mainWindow, limitMins)
     return {
       resumed: false,
@@ -836,7 +874,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  registerIpcHandlers()
+  registerIpcHandlers({ approveNextSession })
   createWindow()
   createTray()
   startRobloxDetection()

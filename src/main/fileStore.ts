@@ -5,6 +5,7 @@ import { execFileSync } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
 import type { Settings, Session, TimerState, DailyUsage } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
+import { normalizeRequireApprovalBeforeStart } from '../shared/startPolicy'
 
 const LEGACY_MYPACT_DIR = join(homedir(), '.mypact')
 const COMMON_APP_DATA_DIR = process.platform === 'win32' ? 'C:\\ProgramData' : homedir()
@@ -92,6 +93,7 @@ function normalizeSettings(settings: Partial<Settings>): Settings {
   if (typeof merged.resumeTimerOnRestart !== 'boolean') {
     merged.resumeTimerOnRestart = DEFAULT_SETTINGS.resumeTimerOnRestart
   }
+  merged.requireApprovalBeforeStart = normalizeRequireApprovalBeforeStart(merged.requireApprovalBeforeStart)
   if (typeof merged.updatedAt !== 'string') {
     merged.updatedAt = new Date().toISOString()
   }
