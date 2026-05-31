@@ -41,7 +41,7 @@
 - Windows installer GitHub Actions가 `main` push와 `v*` 태그에서도 실행되도록 조정했습니다.
 - 릴리즈: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.0
 - GitHub Actions tag build: `26713853128`
-- 최종 검증 설치본: `My Pact Setup 0.60.0.exe`
+- 최종 검증 설치본: `My.Pact.Setup.0.60.0.exe`
 - SHA256: `1b63fc6cd165689fae668c27edcc41adcbea77071f63645d838a603561c739f9`
 
 ---

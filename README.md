@@ -301,7 +301,7 @@ npm run package:win
 
 ```text
 GitHub Release `v0.60.0`: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.0
-My Pact Setup 0.60.0.exe
+My.Pact.Setup.0.60.0.exe
 SHA256: 1b63fc6cd165689fae668c27edcc41adcbea77071f63645d838a603561c739f9
 ```
 
