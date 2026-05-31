@@ -12,6 +12,7 @@ import { isHourAllowed } from '../shared/policy'
 import { shouldRequireApprovalForStart } from '../shared/startPolicy'
 import { shouldBlockTimerStartWithoutRoblox, shouldPauseTimerWhenRobloxMissing } from '../shared/robloxSync'
 import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
+import { decideStartupWindowAction } from '../shared/startupVisibility'
 import type { DailyUsage, Session, TimerState } from '../shared/types'
 
 // Packaged app must run once per Windows user/session. Electron's single instance
@@ -1035,7 +1036,13 @@ app.whenReady().then(() => {
   mainWindow?.webContents.once('did-finish-load', () => {
     setTimeout(() => {
       const resumed = tryResumeTimer()
-      if (!resumed) mainWindow?.hide()
+      const action = decideStartupWindowAction({ startHidden, resumedTimer: resumed })
+      if (action === 'show-main-window' && mainWindow) {
+        restoreWindow(mainWindow)
+        mainWindow.focus()
+      } else if (action === 'hide-to-tray') {
+        mainWindow?.hide()
+      }
     }, 500)
   })
 
