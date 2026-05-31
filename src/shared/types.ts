@@ -3,7 +3,6 @@ export interface Settings {
   weekendLimit: number
   weekdaySessionCount: number    // 평일 하루 최대 세션 수
   weekendSessionCount: number    // 주말 하루 최대 세션 수
-  customDays?: Record<string, number>
   allowedStartHour: number
   allowedEndHour: number
   adminPasswordHash: string
@@ -26,12 +25,38 @@ export interface TimerState {
   limitMs: number          // total limit in ms
   date: string             // YYYY-MM-DD — 날짜 다르면 무효
   pausedRemainingMs?: number  // 일시정지 시 잔여 ms 스냅샷
+  sessionStartTime?: string
+  limitAtSession?: number
 }
+
+export type PublicSettings = Omit<Settings, 'adminPasswordHash'>
 
 export interface DailyUsage {
   date: string
   sessionsCompleted: number      // 타이머가 만료된 완료 세션 수
   currentSessionRemainingMs: number  // 현재 진행/일시정지 중인 세션의 잔여 ms (0이면 없음)
+}
+
+export interface TimerStartResult {
+  resumed: boolean
+  remainingSeconds: number
+  exhausted?: boolean
+  blocked?: 'outside-hours' | 'invalid-limit'
+}
+
+export interface TimerStatus {
+  running: boolean
+  remainingSeconds: number
+  mode?: 'corner' | 'center-popup' | 'center-countdown' | 'shutdown'
+}
+
+export interface DailyRemaining {
+  remainingSeconds: number
+  exhausted: boolean
+  totalSeconds: number
+  sessionsCompleted: number
+  sessionsPerDay: number
+  currentSessionActive: boolean
 }
 
 // SHA-256('0000')
@@ -45,6 +70,17 @@ export const DEFAULT_SETTINGS: Settings = {
   allowedStartHour: 16,
   allowedEndHour: 22,
   adminPasswordHash: DEFAULT_PASSWORD_HASH,
+  resumeTimerOnRestart: true,
+  updatedAt: new Date().toISOString(),
+}
+
+export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
+  weekdayLimit: 60,
+  weekendLimit: 60,
+  weekdaySessionCount: 1,
+  weekendSessionCount: 1,
+  allowedStartHour: 16,
+  allowedEndHour: 22,
   resumeTimerOnRestart: true,
   updatedAt: new Date().toISOString(),
 }
