@@ -45,6 +45,11 @@ export interface TimerStartResult {
   blocked?: 'outside-hours' | 'invalid-limit' | 'approval-required' | 'roblox-not-running'
 }
 
+export interface AdminApprovalResult {
+  ok: boolean
+  launchedPendingRoblox: boolean
+}
+
 export interface TimerStatus {
   running: boolean
   remainingSeconds: number

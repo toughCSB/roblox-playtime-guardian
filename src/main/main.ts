@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen, Tray, nativeImage } from 'electron'
 import { join } from 'path'
-import { exec, execFileSync } from 'child_process'
+import { exec, execFileSync, spawn } from 'child_process'
 import { mkdirSync, writeFileSync } from 'fs'
 import { registerIpcHandlers } from './ipc'
 import { requireAdminSession } from './adminAuth'
@@ -39,6 +39,10 @@ let robloxDetectInterval: ReturnType<typeof setInterval> | null = null
 let robloxRunning = false
 let lastRobloxBlockedReason = ''
 let lastRobloxPresenceCheck = 0
+type RobloxLaunchCommand = { executablePath: string; args: string[] }
+let pendingApprovalRobloxLaunch: RobloxLaunchCommand | null = null
+let pendingApprovalRobloxLaunchAt = 0
+const PENDING_APPROVAL_LAUNCH_TTL_MS = 2 * 60 * 1000
 
 let timerDisplay: Electron.Display | null = null
 let volatileDailyUsage: DailyUsage | null = null
@@ -154,6 +158,77 @@ function killRoblox(retries = 2): void {
   }
 }
 
+function splitWindowsCommandLine(commandLine: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < commandLine.length; i++) {
+    const ch = commandLine[i]
+    if (ch === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (/\s/.test(ch) && !inQuotes) {
+      if (current) {
+        result.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += ch
+  }
+
+  if (current) result.push(current)
+  return result
+}
+
+function getRobloxLaunchCommand(): RobloxLaunchCommand | null {
+  if (process.platform !== 'win32') return null
+  try {
+    const ps = "$p=Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('RobloxPlayer.exe','RobloxPlayerBeta.exe') } | Select-Object -First 1 ExecutablePath,CommandLine; if ($p) { $p | ConvertTo-Json -Compress }"
+    const stdout = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], {
+      encoding: 'utf8',
+      windowsHide: true,
+    }).trim()
+    if (!stdout) return null
+    const parsed = JSON.parse(stdout) as { ExecutablePath?: string; CommandLine?: string }
+    if (!parsed.ExecutablePath) return null
+    const parts = splitWindowsCommandLine(parsed.CommandLine ?? '')
+    const args = parts.length > 0 ? parts.slice(1) : []
+    return { executablePath: parsed.ExecutablePath, args }
+  } catch (err) {
+    console.error('capture Roblox launch command failed', err)
+    return null
+  }
+}
+
+function rememberPendingApprovalRobloxLaunch(): void {
+  pendingApprovalRobloxLaunch = getRobloxLaunchCommand()
+  pendingApprovalRobloxLaunchAt = pendingApprovalRobloxLaunch ? Date.now() : 0
+}
+
+function launchPendingApprovalRoblox(): boolean {
+  const pending = pendingApprovalRobloxLaunch
+  pendingApprovalRobloxLaunch = null
+  if (!pending) return false
+  if (Date.now() - pendingApprovalRobloxLaunchAt > PENDING_APPROVAL_LAUNCH_TTL_MS) return false
+  try {
+    const child = spawn(pending.executablePath, pending.args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    })
+    child.unref()
+    robloxRunning = false
+    robloxBaselineCaptured = true
+    return true
+  } catch (err) {
+    console.error('launch pending Roblox after approval failed', err)
+    return false
+  }
+}
+
 function isRobloxProcessRunning(): boolean {
   if (process.platform !== 'win32') return false
   try {
@@ -247,8 +322,9 @@ function pauseTimerBecauseRobloxClosed(): void {
   mainWindow?.webContents.send('roblox:closed')
 }
 
-function approveNextSession(): void {
+function approveNextSession(): boolean {
   parentApprovalGrantedForNextSession = true
+  return launchPendingApprovalRoblox()
 }
 
 function consumeParentApprovalForFreshSession(): void {
@@ -276,6 +352,7 @@ function startTimerForDetectedRoblox(): boolean {
   }
   const settings = readSettings()
   if (!hasParentApprovalForFreshSession(settings)) {
+    rememberPendingApprovalRobloxLaunch()
     killRoblox()
     showRobloxBlocked('approval-required')
     return false
@@ -797,6 +874,7 @@ function createWindow(): void {
 
     const settings = readSettings()
     if (!hasParentApprovalForFreshSession(settings)) {
+      rememberPendingApprovalRobloxLaunch()
       killRoblox()
       showRobloxBlocked('approval-required')
       return { resumed: false, remainingSeconds: 0, exhausted: false, blocked: 'approval-required' }
@@ -815,6 +893,7 @@ function createWindow(): void {
   ipcMain.handle('timer:stop', async (event) => {
     requireAdminSession(event)
     pauseActiveTimer()
+    killRoblox()
   })
 
   ipcMain.handle('timer:get-status', async () => {
@@ -845,6 +924,7 @@ function createWindow(): void {
       })
     }
     stopTimerInternals()
+    killRoblox()
     if (mainWindow) {
       restoreWindow(mainWindow)
       mainWindow.webContents.send('timer:admin-stopped')
@@ -890,6 +970,7 @@ function createWindow(): void {
     requireAdminSession(event)
     disableWatchdog()
     stopWatchdogProcesses()
+    killRoblox()
     allowQuit = true
     app.quit()
     return true

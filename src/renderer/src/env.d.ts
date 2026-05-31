@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { DailyRemaining, PublicSettings, Session, TimerStartResult, TimerStatus } from '../../shared/types'
+import type { AdminApprovalResult, DailyRemaining, PublicSettings, Session, TimerStartResult, TimerStatus } from '../../shared/types'
 
 declare global {
   interface Window {
@@ -22,7 +22,7 @@ declare global {
 
       adminVerifyPassword(pin: string): Promise<boolean>
       adminUnlockSettings(pin: string): Promise<boolean>
-      adminApproveNextSession(pin: string): Promise<boolean>
+      adminApproveNextSession(pin: string): Promise<AdminApprovalResult>
       adminChangePassword(currentPin: string, newPin: string): Promise<void>
       adminCloseWindow(): Promise<void>
       adminGetResumeOption(): Promise<boolean>

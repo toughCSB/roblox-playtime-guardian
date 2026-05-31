@@ -162,9 +162,17 @@ export default function Timer({ onOpenSettings }: Props) {
     try {
       setApprovalPending(true)
       setApprovalError('')
-      const ok = await api.adminApproveNextSession(approvalPin)
-      if (!ok) {
+      const approval = await api.adminApproveNextSession(approvalPin)
+      if (!approval.ok) {
         setApprovalError('PIN이 올바르지 않아요.')
+        return
+      }
+      setApprovalPin('')
+      setApprovalError('')
+      if (approval.launchedPendingRoblox) {
+        setBlockedMessage(null)
+        setAutoStartBanner(true)
+        setTimeout(() => setAutoStartBanner(false), 3000)
         return
       }
       await handleStartTimer(limitMinutes)
