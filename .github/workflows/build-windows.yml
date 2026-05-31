@@ -3,7 +3,9 @@ name: Build Windows Installer
 on:
   push:
     branches:
-      - fix-parent-approval-start
+      - main
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main

@@ -9,3 +9,4 @@ dist-v*/
 .DS_Store
 .kkirikkiri/
 .omo/
+artifacts/

@@ -9,6 +9,40 @@
 
 ---
 
+## [0.60.0] — 2026-05-31
+
+### 추가
+- 최초 코드리뷰 항목 기준으로 현재 조치 완료/후속 과제를 README에 정리했습니다.
+- `src/shared/robloxSync.ts`와 `tests/robloxSync.test.mjs`를 추가해 Roblox 프로세스 유무와 타이머 시작/일시정지 정책을 테스트 가능하게 분리했습니다.
+- `src/shared/startupVisibility.ts`와 `tests/startupVisibility.test.mjs`를 추가해 자동실행 숨김 시작과 수동 실행 창 표시 정책을 회귀 테스트로 고정했습니다.
+
+### 수정
+- 패키지 앱에서 Roblox가 실행 중이 아닌데 타이머가 시작되는 경로를 차단했습니다.
+- 타이머 실행 중 Roblox 프로세스가 사라지면 2초 주기 확인으로 즉시 타이머를 일시정지하고 잔여 시간을 보존합니다.
+- 타이머 실행 중 허용 종료 시간이 지나면 Roblox를 강제 종료하고 `outside-hours` 차단 메시지를 표시합니다.
+- 앱 시작 시 Roblox가 이미 실행 중인 경우에도 허용 시간, 세션 쿼터, 부모 승인 정책을 검사하도록 했습니다.
+- 부모 PIN 승인이 필요한 Roblox 실행을 차단할 때 원래 Roblox 실행 커맨드를 저장하고, 승인 성공 후 자동 재실행하도록 수정했습니다.
+- 부모 승인 IPC 결과를 단순 boolean에서 구조화된 결과로 바꿔 승인 성공과 Roblox 재실행 여부를 구분합니다.
+- 관리자 중지/앱 종료/만료 경로에서 Roblox 종료 처리를 보강했습니다.
+- 트레이 아이콘 로딩 실패가 앱 시작 실패로 이어지지 않도록 icon 후보 탐색, `nativeImage.isEmpty()` 검증, fallback 아이콘, 예외 처리를 추가했습니다.
+- `--start-hidden` 자동실행과 일반 수동 실행을 구분해 수동 실행 시 메인 창이 표시되도록 수정했습니다.
+
+### 보안/하드닝
+- 기본 PIN `0000`의 해시가 전체 SHA-256 값인지 검증하는 테스트를 유지합니다.
+- watchdog disable flag를 `%ProgramData%\MyPact\Admin\watchdog-disabled.flag` 보호 경로 기준으로 통일했습니다.
+- installer ACL에서 `Admin`은 표준 사용자 읽기/실행만 허용하고, `Data` 직접 변조 방지는 추후 Windows Service/SYSTEM 구조 개선 과제로 명시했습니다.
+
+### 문서
+- README에 v0.60.0 안정화 요약과 추가 개선 필요 사항을 추가했습니다.
+- PIN 보안 하드닝, Data JSON 변조 방지, startup/watchdog 로그, `main.ts` 책임 분리 항목을 차기 과제로 정리했습니다.
+
+### 빌드/릴리스
+- 버전을 `0.60.0`으로 올렸습니다.
+- Windows installer GitHub Actions가 `main` push와 `v*` 태그에서도 실행되도록 조정했습니다.
+- 릴리즈 설치본은 GitHub Release `v0.60.0`에 첨부되는 `My Pact Setup 0.60.0.exe`를 기준으로 검증합니다.
+
+---
+
 ## [0.50.1] — 2026-05-31
 
 ### 수정
