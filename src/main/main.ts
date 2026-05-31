@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen, Tray, nativeImage } from 'electron'
 import { join } from 'path'
 import { exec, execFileSync, spawn } from 'child_process'
-import { mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { registerIpcHandlers } from './ipc'
 import { requireAdminSession } from './adminAuth'
 import {
@@ -14,7 +14,11 @@ import { shouldBlockTimerStartWithoutRoblox, shouldPauseTimerWhenRobloxMissing }
 import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
 import type { DailyUsage, Session, TimerState } from '../shared/types'
 
-if (!app.requestSingleInstanceLock()) {
+// Packaged app must run once per Windows user/session. Electron's single instance
+// lock can block a standard-user session when another account already has My Pact
+// running, so keep the lock only for local development. The watchdog already
+// prevents duplicate packaged instances inside the same session.
+if (!app.isPackaged && !app.requestSingleInstanceLock()) {
   app.quit()
 }
 
@@ -51,6 +55,7 @@ let robloxBaselineCaptured = false
 let parentApprovalGrantedForNextSession = false
 const COMMON_APP_DATA_DIR = process.platform === 'win32' ? 'C:\\ProgramData' : app.getPath('userData')
 const WATCHDOG_DISABLED_PATH = join(COMMON_APP_DATA_DIR, 'MyPact', 'Admin', 'watchdog-disabled.flag')
+const FALLBACK_TRAY_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB6ElEQVR4nI2SQUgUYRTHX0TdI9jd2R0NPARRLCYliLDe1Et2iDCo9KQiwSJ0CDYFPdimwmIYKOwcEiMS6RLoJaKCiKFZamfDgohaRGgCq6MwY/7j/+3OsO1uWw+Gx/f+v//73nzfJ9IgHNG/OaKDuRFXE6aEEjkJXy2b/e/I/5oPmBJyTQnhk0S/b4vubkmMkyw6onf8s4Ej+rwlYbw6HEP+8ihujaaQH7iG59op5CXCSeYbmY2XEsLGzduYnMyAMTKSUtkwVlWdOrl65iuvJYziXQM7Oz8QjcaRTt+BH5ZVUJk6OfJ/NPgiMftF90Ukk1PwvD309PSjpeUsKoN16uTIV+6u2aJhK7sSwK7rorm5DclzA6gOcuTp8xu0c6zU9WksLz8KwIUzvdh9+BjTxzuDGnVy5d9o9xu05iSC9aUVFIvbAfxz/SnsC0PoO3oCTU2nkc3eVzq5XOlGWv0Gh96L9uvj1BxM823NyOPjaXUeY2MTSidHnr7gHL6K/uDJsTbMzSzVNKgM6uTIV19jfFM0vLk0BM/zkMkYymDbH1TmmnXqm6UDjNd7C4MF0bCROA/r3iqwv4/h4ZTKXLNeKJkHG73G7s8SfWdJBM8Oalg7mVCZa9ap/9Vc1ajLEf2GI/psOXfV434Du+O1a17Rx5AAAAAASUVORK5CYII='
 
 function getDailyUsage(): DailyUsage | null {
   if (volatileDailyUsage) {
@@ -753,13 +758,45 @@ function addTrayClick(count = 1): void {
   }, 400)
 }
 
+function loadTrayIcon(): Electron.NativeImage {
+  const resourcesDir = getResourcesDir()
+  const candidatePaths = process.platform === 'win32'
+    ? [
+        join(resourcesDir, 'icon.ico'),
+        join(resourcesDir, 'tray-icon.png'),
+        join(resourcesDir, 'icon-256.png'),
+      ]
+    : [
+        join(resourcesDir, 'tray-icon.png'),
+        join(resourcesDir, 'icon-256.png'),
+        join(resourcesDir, 'icon.ico'),
+      ]
+
+  for (const iconPath of candidatePaths) {
+    if (!existsSync(iconPath)) continue
+    const icon = nativeImage.createFromPath(iconPath)
+    if (!icon.isEmpty()) {
+      return process.platform === 'win32' ? icon : icon.resize({ width: 16, height: 16 })
+    }
+    console.error('tray icon image was empty', iconPath)
+  }
+
+  const fallback = nativeImage.createFromDataURL(FALLBACK_TRAY_ICON_DATA_URL)
+  if (!fallback.isEmpty()) return fallback
+
+  throw new Error(`No usable tray icon found in ${resourcesDir}`)
+}
+
 function createTray(): void {
-  const iconPath = join(getResourcesDir(), 'tray-icon.png')
-  const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
-  tray = new Tray(icon)
-  tray.setToolTip('My Pact')
-  tray.on('click', () => addTrayClick(1))
-  tray.on('double-click', () => addTrayClick(2))
+  try {
+    const icon = loadTrayIcon()
+    tray = new Tray(icon)
+    tray.setToolTip('My Pact')
+    tray.on('click', () => addTrayClick(1))
+    tray.on('double-click', () => addTrayClick(2))
+  } catch (err) {
+    console.error('tray creation failed; continuing without crashing startup', err)
+  }
 }
 
 function startRobloxDetection(): void {
