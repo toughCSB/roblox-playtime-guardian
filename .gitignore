@@ -10,3 +10,8 @@ dist-v*/
 .kkirikkiri/
 .omo/
 artifacts/
+
+# Local/private project writeups
+01-idea-brief.md
+AI_CASE_STUDY.md
+AI_CASE_STUDY_2.md
