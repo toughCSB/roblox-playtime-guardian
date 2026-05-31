@@ -1,6 +1,7 @@
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, unlinkSync, renameSync } from 'fs'
+import { execFileSync } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
 import type { Settings, Session, TimerState, DailyUsage } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
@@ -142,7 +143,33 @@ export function readAdminPasswordHash(): string {
 
 export function writeAdminPasswordHash(hash: string): void {
   ensureDir()
-  atomicWrite(ADMIN_SECRET_PATH, JSON.stringify({ adminPasswordHash: normalizeAdminPasswordHash(hash) }, null, 2))
+  const normalizedHash = normalizeAdminPasswordHash(hash)
+  try {
+    atomicWrite(ADMIN_SECRET_PATH, JSON.stringify({ adminPasswordHash: normalizedHash }, null, 2))
+  } catch (err) {
+    if (process.platform !== 'win32') throw err
+    writeProtectedAdminPasswordHash(normalizedHash)
+  }
+}
+
+function writeProtectedAdminPasswordHash(hash: string): void {
+  const json = JSON.stringify({ adminPasswordHash: hash }, null, 2)
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    `$secretPath = '${ADMIN_SECRET_PATH.replace(/'/g, "''")}'`,
+    `$json = '${json.replace(/'/g, "''")}'`,
+    '$secretDir = Split-Path -Parent $secretPath',
+    'New-Item -ItemType Directory -Force -Path $secretDir | Out-Null',
+    'Set-Content -LiteralPath $secretPath -Value $json -Encoding UTF8',
+    'icacls.exe $secretPath /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F" "*S-1-5-32-545:R" /C | Out-Null',
+  ].join('\n')
+  const encodedScript = Buffer.from(script, 'utf16le').toString('base64')
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    `$p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','${encodedScript}') -Verb RunAs -Wait -PassThru`,
+    'exit $p.ExitCode',
+  ].join('; ')
+  execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], { windowsHide: true })
 }
 
 function toPersistedSettings(settings: Settings): Omit<Settings, 'adminPasswordHash'> {

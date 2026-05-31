@@ -2,7 +2,7 @@
 
 > **자녀의 로블록스 게임 시간을 부모가 설정하고, 자녀 스스로 서약을 지키도록 돕는 Electron 데스크탑 타이머 앱**
 
-[![Version](https://img.shields.io/badge/version-0.50-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
+[![Version](https://img.shields.io/badge/version-0.50.1-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
 ---
 
@@ -266,8 +266,8 @@ npm run package:win
 최종 검증 설치본:
 
 ```text
-dist\My Pact Setup 0.50.0.exe
-SHA256: 3D4DC1D060638C042A1C5842EF1F75E1F0E77C04C9826BB05AA9C5D4ADAC26DA
+dist\My Pact Setup 0.50.1.exe
+SHA256: A4DD9984FC261DEF647D17E9A268F1D49FC23542B8B375F20903755F0F3F2786
 ```
 
 Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신뢰된 코드 서명 인증서로 서명해야 합니다. 인증서 환경변수(`CSC_LINK`, `CSC_KEY_PASSWORD` 등)와 symlink 생성 권한이 있는 릴리즈 환경에서는 `npm run package:win:signed`를 사용하세요. 일반 개발/내부 테스트용 재설치 파일은 `npm run package:win`으로 생성합니다.
@@ -278,6 +278,7 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
+| **v0.50.1** | 2026-05-31 | 관리자 비밀번호 변경 실패 수정, 보호된 PIN 파일 갱신 시 UAC 승격 경로 보강 |
 | **v0.50.0** | 2026-05-31 | ProgramData 저장소/관리자 세션 하드닝, watchdog 자동 재실행, Roblox 오탐 방지, 최소화 버튼 수정, 관리자 시간 추가/차감/직접입력, watchdog 재시작 시 Roblox 미실행 타이머 자동진행 방지 |
 | **v0.4.0** | 2026-05-29 | 세션 횟수 설정(XX분×X회), 데일리 쿼터 관리, 경고 팝업 위치 수정, 표준계정 버그 수정 |
 | **v0.3.1** | 2026-05-28 | 작업관리자 종료방지, 앱 삭제방지(PIN 잠금), HD 해상도 레이아웃 수정, 프로젝트 구조 통합 |
@@ -297,6 +298,7 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 - [x] **v0.3.1** — 작업관리자 종료방지, 앱 삭제방지, HD 해상도 호환, 프로젝트 구조 통합
 - [x] **v0.4.0** — 세션 횟수 설정(XX분×X회), 데일리 쿼터 관리, 경고 팝업 위치 수정, 표준계정 버그 수정
 - [x] **v0.50.0** — 설치/자동실행 안정화, watchdog 복구, 관리자 시간 조정, 보안 하드닝, 최소화/복원 버그 수정
+- [x] **v0.50.1** — 관리자 비밀번호 변경 hotfix
 - [ ] **v0.6.0** — 요일별 개별 시간 설정, 플레이 기록 화면
 - [ ] **v1.0.0** — 웹 대시보드 연동 (주간/월간 그래프)
 

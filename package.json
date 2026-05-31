@@ -1,6 +1,6 @@
 {
   "name": "my-pact",
-  "version": "0.50.0",
+  "version": "0.50.1",
   "description": "자녀의 로블록스 시간을 관리하는 Electron 타이머 앱",
   "main": "out/main/main.js",
   "scripts": {

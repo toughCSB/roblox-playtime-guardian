@@ -307,12 +307,6 @@ function AdminStage() {
     }
   }
 
-  useEffect(() => {
-    if (/^\d{4}$/.test(pwCurrent) && /^\d{4}$/.test(pwNew) && /^\d{4}$/.test(pwConfirm)) {
-      void handleChangePassword()
-    }
-  }, [pwCurrent, pwNew, pwConfirm])
-
   const inputStyle: React.CSSProperties = {
     background: 'rgba(255,255,255,0.08)',
     border: '1px solid rgba(255,255,255,0.2)',
