@@ -300,8 +300,9 @@ npm run package:win
 최종 검증 설치본:
 
 ```text
-GitHub Release `v0.60.0`의 `My Pact Setup 0.60.0.exe`
-SHA256: 릴리즈 노트와 첨부 asset checksum 기준으로 확인
+GitHub Release `v0.60.0`: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.0
+My Pact Setup 0.60.0.exe
+SHA256: 1b63fc6cd165689fae668c27edcc41adcbea77071f63645d838a603561c739f9
 ```
 
 Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신뢰된 코드 서명 인증서로 서명해야 합니다. 인증서 환경변수(`CSC_LINK`, `CSC_KEY_PASSWORD` 등)와 symlink 생성 권한이 있는 릴리즈 환경에서는 `npm run package:win:signed`를 사용하세요. 일반 개발/내부 테스트용 재설치 파일은 `npm run package:win`으로 생성합니다.
