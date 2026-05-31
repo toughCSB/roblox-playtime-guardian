@@ -10,6 +10,7 @@ import {
 } from './fileStore'
 import { isHourAllowed } from '../shared/policy'
 import { shouldRequireApprovalForStart } from '../shared/startPolicy'
+import { shouldBlockTimerStartWithoutRoblox, shouldPauseTimerWhenRobloxMissing } from '../shared/robloxSync'
 import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
 import type { DailyUsage, Session, TimerState } from '../shared/types'
 
@@ -37,6 +38,7 @@ let trayClickTimer: ReturnType<typeof setTimeout> | null = null
 let robloxDetectInterval: ReturnType<typeof setInterval> | null = null
 let robloxRunning = false
 let lastRobloxBlockedReason = ''
+let lastRobloxPresenceCheck = 0
 
 let timerDisplay: Electron.Display | null = null
 let volatileDailyUsage: DailyUsage | null = null
@@ -112,6 +114,16 @@ function getResourcesDir(): string {
   return app.isPackaged
     ? join(process.resourcesPath, 'resources')
     : join(process.cwd(), 'resources')
+}
+
+
+function spawnSessionWatchdog(): void {
+  if (process.platform !== 'win32' || !app.isPackaged) return
+  if (process.argv.includes('--no-watchdog')) return
+  const launcherPath = join(getResourcesDir(), 'start-watch-loop.vbs')
+  exec(`wscript.exe //B //Nologo "${launcherPath}"`, { windowsHide: true }, (err) => {
+    if (err) console.error('session watchdog spawn failed', err)
+  })
 }
 
 function getLocalDateString(date = new Date()): string {
@@ -228,6 +240,13 @@ function pauseActiveTimer(): void {
   hideToTray()
 }
 
+function pauseTimerBecauseRobloxClosed(): void {
+  if (!shouldPauseTimerWhenRobloxMissing(timerStart !== null, false)) return
+  robloxRunning = false
+  pauseActiveTimer()
+  mainWindow?.webContents.send('roblox:closed')
+}
+
 function approveNextSession(): void {
   parentApprovalGrantedForNextSession = true
 }
@@ -242,6 +261,7 @@ function hasParentApprovalForFreshSession(settings = readSettings()): boolean {
 
 function startTimerForDetectedRoblox(): boolean {
   if (!mainWindow || timerStart !== null) return false
+  if (shouldBlockTimerStartWithoutRoblox(app.isPackaged, isRobloxProcessRunning())) return false
   const today = getLocalDateString()
   const { perSessionMinutes, sessionsPerDay } = getTodaySessionCount()
   const usage = getDailyUsage()
@@ -449,6 +469,8 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
   warnedMinutes.clear()
   inCenterMode = false
 
+  robloxRunning = process.platform === 'win32' ? isRobloxProcessRunning() : robloxRunning
+
   const settings = readSettings()
   if (settings.resumeTimerOnRestart) {
     const today = getLocalDateString()
@@ -471,6 +493,16 @@ function startTimer(win: BrowserWindow, limitMinutes: number, resumeRemainingMs?
 
   timerInterval = setInterval(() => {
     if (timerStart === null || timerLimitMs === null) return
+
+    const now = Date.now()
+    if (process.platform === 'win32' && now - lastRobloxPresenceCheck >= 2000) {
+      lastRobloxPresenceCheck = now
+      if (!isRobloxProcessRunning()) {
+        pauseTimerBecauseRobloxClosed()
+        return
+      }
+      robloxRunning = true
+    }
 
     if (!isAllowedHour()) {
       completeActiveTimer(win)
@@ -559,7 +591,7 @@ function tryResumeTimer(): boolean {
     return false
   }
 
-  if (!isRobloxProcessRunning()) {
+  if (shouldBlockTimerStartWithoutRoblox(app.isPackaged, isRobloxProcessRunning())) {
     robloxRunning = false
     safeWriteDailyUsage({
       date: today,
@@ -684,10 +716,8 @@ function startRobloxDetection(): void {
         const started = startTimerForDetectedRoblox()
         robloxRunning = started
         if (started) mainWindow?.webContents.send('roblox:detected')
-      } else if (!isRunning && robloxRunning) {
-        robloxRunning = false
-        pauseActiveTimer()
-        mainWindow?.webContents.send('roblox:closed')
+      } else if (!isRunning && (robloxRunning || timerStart !== null)) {
+        pauseTimerBecauseRobloxClosed()
       }
     })
   }, 3000)
@@ -726,6 +756,10 @@ function createWindow(): void {
     if (timerStart !== null && timerLimitMs !== null) {
       const remaining = Math.max(0, timerLimitMs - (Date.now() - timerStart))
       return { resumed: true, remainingSeconds: Math.ceil(remaining / 1000), exhausted: false }
+    }
+
+    if (shouldBlockTimerStartWithoutRoblox(app.isPackaged, isRobloxProcessRunning())) {
+      return { resumed: false, remainingSeconds: 0, exhausted: false, blocked: 'roblox-not-running' }
     }
 
     const trustedLimit = getTodaySessionCount().perSessionMinutes
@@ -875,6 +909,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   registerIpcHandlers({ approveNextSession })
+  spawnSessionWatchdog()
   createWindow()
   createTray()
   startRobloxDetection()

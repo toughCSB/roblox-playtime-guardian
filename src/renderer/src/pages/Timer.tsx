@@ -123,7 +123,9 @@ export default function Timer({ onOpenSettings }: Props) {
         ? `${s.allowedStartHour}시 ~ ${s.allowedEndHour}시에만 Roblox를 실행할 수 있어요.`
         : result.blocked === 'approval-required'
           ? '부모님 PIN 승인 후 Roblox를 시작할 수 있어요.'
-          : 'Roblox를 시작할 수 없어요.')
+          : result.blocked === 'roblox-not-running'
+            ? 'Roblox가 실행 중일 때만 타이머가 시작돼요.'
+            : 'Roblox를 시작할 수 없어요.')
       refreshDailyUsage()
       return
     }

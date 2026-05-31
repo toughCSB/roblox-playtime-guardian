@@ -42,7 +42,7 @@ export interface TimerStartResult {
   resumed: boolean
   remainingSeconds: number
   exhausted?: boolean
-  blocked?: 'outside-hours' | 'invalid-limit' | 'approval-required'
+  blocked?: 'outside-hours' | 'invalid-limit' | 'approval-required' | 'roblox-not-running'
 }
 
 export interface TimerStatus {
