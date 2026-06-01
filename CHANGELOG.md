@@ -9,6 +9,31 @@
 
 ---
 
+## [0.60.6] — 2026-06-02
+
+### 보안/하드닝
+- Electron을 `42.3.0`으로 올려 런타임 보안 권고 항목을 해소했습니다.
+- electron-builder를 `26.8.1`, electron-vite를 `5.0.0`, Vite를 `7.3.5`, Vitest를 `4.1.8`로 올렸습니다.
+- 런타임 `uuid` 의존성을 제거하고 Node 내장 `crypto.randomUUID()`를 사용하도록 변경했습니다.
+- stale `bun.lock`을 제거하고 npm lockfile 기준으로 정리했습니다.
+
+### 수정
+- `daily:get-remaining`에서 정규화된 사용량 저장이 실패해도 복구된 결과는 UI에 반환하도록 방어했습니다.
+- 메인 화면 버전 문자열을 `package.json` 버전에서 빌드 시 자동 주입하도록 수정했습니다.
+- electron-vite 5 타입 정의에 맞게 main/preload entry 설정을 정리했습니다.
+
+### 테스트
+- daily-usage 정규화 저장 필요 여부 helper의 회귀 테스트를 추가했습니다.
+- `npm test`, `npm run typecheck`, `npm run build`, `npm audit`, `npm run package:win`을 통과했습니다.
+
+### 빌드/릴리스
+- 버전을 `0.60.6`으로 올렸습니다.
+- 릴리즈: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.6
+- 최종 검증 설치본: `My Pact Setup 0.60.6.exe`
+- SHA256: `61BA370504B780396BA0C277E48782D8418FB1117FA9F9CA4A96880ADA1AD0C5`
+
+---
+
 ## [0.60.5] — 2026-06-01
 
 ### 수정

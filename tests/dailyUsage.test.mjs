@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isDailyUsageExhausted,
   normalizeDailyUsage,
+  shouldPersistNormalizedDailyUsage,
 } from '../src/shared/dailyUsage'
 
 describe('daily usage recovery', () => {
@@ -39,5 +40,20 @@ describe('daily usage recovery', () => {
 
     expect(usage.sessionsCompleted).toBe(2)
     expect(usage.currentSessionRemainingMs).toBe(12_000)
+  })
+
+  it('persists only when normalized usage differs from the stored snapshot', () => {
+    const storedUsage = {
+      date: '2026-06-01',
+      sessionsCompleted: 2,
+      currentSessionRemainingMs: 12_000,
+    }
+
+    expect(shouldPersistNormalizedDailyUsage(storedUsage, { ...storedUsage })).toBe(false)
+    expect(shouldPersistNormalizedDailyUsage(null, storedUsage)).toBe(true)
+    expect(shouldPersistNormalizedDailyUsage(storedUsage, {
+      ...storedUsage,
+      sessionsCompleted: 3,
+    })).toBe(true)
   })
 })

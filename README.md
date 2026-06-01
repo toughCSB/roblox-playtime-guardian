@@ -2,7 +2,7 @@
 
 > **자녀의 로블록스 게임 시간을 부모가 설정하고, 자녀 스스로 서약을 지키도록 돕는 Electron 데스크탑 타이머 앱**
 
-[![Version](https://img.shields.io/badge/version-0.60.5-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
+[![Version](https://img.shields.io/badge/version-0.60.6-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
 ---
 
@@ -168,6 +168,16 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 
 ---
 
+### ✅ v0.60.6 보안/호환성 점검 요약
+Electron 런타임과 빌드 체인을 최신 보안 패치 계열로 올리고, 표준 사용자/관리자 계정 설치 흐름을 다시 검증한 릴리즈입니다.
+
+- Electron `42.3.0`, electron-builder `26.8.1`, electron-vite `5.0.0`, Vite `7.3.5` 계열로 업그레이드했습니다.
+- 런타임 `uuid` 의존성을 제거하고 Node 내장 `crypto.randomUUID()`로 세션 ID를 생성합니다.
+- `npm audit` 기준 취약점 0건 상태로 정리했습니다.
+- daily-usage 복구 정보를 저장하다 실패해도 UI 조회가 깨지지 않도록 방어했습니다.
+- 메인 화면 버전 표시는 `package.json` 버전에서 빌드 시 자동 주입되도록 바꿨습니다.
+- `npm run package:win`으로 Electron Builder 26 기반 NSIS 설치본 생성을 검증했습니다.
+
 ### ✅ v0.60.5 핫픽스 요약
 부팅 자동 실행과 당일 세션 소진 복구 문제를 정리한 핫픽스입니다.
 
@@ -309,9 +319,9 @@ npm run package:win
 최종 검증 설치본:
 
 ```text
-GitHub Release `v0.60.5`: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.5
-My Pact Setup 0.60.5.exe
-SHA256: 17177D9178E1039C0176AB4EDF99FD20DA561C33CAE6725D3E7526307C9EF501
+GitHub Release `v0.60.6`: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.6
+My Pact Setup 0.60.6.exe
+SHA256: 61BA370504B780396BA0C277E48782D8418FB1117FA9F9CA4A96880ADA1AD0C5
 ```
 
 Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신뢰된 코드 서명 인증서로 서명해야 합니다. 인증서 환경변수(`CSC_LINK`, `CSC_KEY_PASSWORD` 등)와 symlink 생성 권한이 있는 릴리즈 환경에서는 `npm run package:win:signed`를 사용하세요. 일반 개발/내부 테스트용 재설치 파일은 `npm run package:win`으로 생성합니다.
@@ -322,6 +332,7 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
+| **v0.60.6** | 2026-06-02 | Electron/Vite/electron-builder 보안 업그레이드, audit 0건, 런타임 uuid 제거, 버전 표시 자동화, daily-usage 조회 안정화 |
 | **v0.60.5** | 2026-06-01 | 부팅 자동실행 숨김 시작 보강, 재부팅 후 당일 세션 완료 횟수 복구, GitHub Actions 워크플로우 제거 |
 | **v0.60.0** | 2026-05-31 | Roblox 감지/타이머 동기화, 부모 승인 후 재실행, 트레이/자동실행/수동 실행 안정화, 최초 리뷰 후속 과제 정리 |
 | **v0.50.1** | 2026-05-31 | 관리자 비밀번호 변경 실패 수정, 보호된 PIN 파일 갱신 시 UAC 승격 경로 보강 |
@@ -347,6 +358,7 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 - [x] **v0.50.1** — 관리자 비밀번호 변경 hotfix
 - [x] **v0.60.0** — Roblox enforcement/승인/트레이/자동실행 안정화 릴리즈
 - [x] **v0.60.5** — 부팅 자동실행 숨김 시작과 재부팅 후 세션 완료 횟수 복구 hotfix
+- [x] **v0.60.6** — Electron/Vite 보안 업그레이드와 전체 audit 정리
 - [ ] **v0.70.0** — 요일별 개별 시간 설정, 플레이 기록 화면
 - [ ] **v1.0.0** — 웹 대시보드 연동 (주간/월간 그래프)
 

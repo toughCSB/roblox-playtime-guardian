@@ -525,7 +525,7 @@ export default function Timer({ onOpenSettings }: Props) {
           margin: '2px 0 0 0',
           textShadow: '0 1px 2px rgba(0,0,0,0.25)',
         }}>
-          ver 0.50
+          ver {__APP_VERSION__}
         </p>
       </div>
 

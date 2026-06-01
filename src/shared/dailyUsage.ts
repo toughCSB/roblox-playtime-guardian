@@ -39,6 +39,18 @@ export function normalizeDailyUsage(options: {
   }
 }
 
+export function shouldPersistNormalizedDailyUsage(
+  storedUsage: DailyUsage | null,
+  normalizedUsage: DailyUsage,
+): boolean {
+  return (
+    !storedUsage ||
+    storedUsage.date !== normalizedUsage.date ||
+    storedUsage.sessionsCompleted !== normalizedUsage.sessionsCompleted ||
+    storedUsage.currentSessionRemainingMs !== normalizedUsage.currentSessionRemainingMs
+  )
+}
+
 export function isDailyUsageExhausted(usage: DailyUsage, sessionsPerDay: number): boolean {
   return usage.sessionsCompleted >= sessionsPerDay && usage.currentSessionRemainingMs <= 0
 }

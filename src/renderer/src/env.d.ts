@@ -3,6 +3,8 @@
 import type { AdminApprovalResult, DailyRemaining, PublicSettings, Session, TimerStartResult, TimerStatus } from '../../shared/types'
 
 declare global {
+  const __APP_VERSION__: string
+
   interface Window {
     api?: {
       readSettings(): Promise<PublicSettings>

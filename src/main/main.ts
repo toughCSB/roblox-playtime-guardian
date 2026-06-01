@@ -13,7 +13,7 @@ import { shouldRequireApprovalForStart } from '../shared/startPolicy'
 import { shouldBlockTimerStartWithoutRoblox, shouldPauseTimerWhenRobloxMissing } from '../shared/robloxSync'
 import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
 import { decideStartupWindowAction, shouldStartHiddenFromLaunch } from '../shared/startupVisibility'
-import { isDailyUsageExhausted, normalizeDailyUsage } from '../shared/dailyUsage'
+import { isDailyUsageExhausted, normalizeDailyUsage, shouldPersistNormalizedDailyUsage } from '../shared/dailyUsage'
 import type { DailyUsage, Session, TimerState } from '../shared/types'
 
 // Packaged app must run once per Windows user/session. Electron's single instance
@@ -71,12 +71,7 @@ function getDailyUsage(): DailyUsage {
     dateKey: today,
   })
   volatileDailyUsage = usage
-  if (
-    !storedUsage ||
-    storedUsage.date !== usage.date ||
-    storedUsage.sessionsCompleted !== usage.sessionsCompleted ||
-    storedUsage.currentSessionRemainingMs !== usage.currentSessionRemainingMs
-  ) {
+  if (shouldPersistNormalizedDailyUsage(storedUsage, usage)) {
     try {
       writeDailyUsage(usage)
     } catch (err) {

@@ -2,7 +2,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, unlinkSync, renameSync } from 'fs'
 import { execFileSync } from 'child_process'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import type { Settings, Session, TimerState, DailyUsage } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 import { normalizeRequireApprovalBeforeStart } from '../shared/startPolicy'
@@ -215,7 +215,7 @@ export function readSessions(): Session[] {
 export function appendSession(sessionData: Omit<Session, 'id'>): void {
   ensureDir()
   const sessions = readSessions()
-  const newSession: Session = { id: uuidv4(), ...sessionData }
+  const newSession: Session = { id: randomUUID(), ...sessionData }
   sessions.push(newSession)
   atomicWrite(SESSIONS_PATH, JSON.stringify(sessions, null, 2))
 }

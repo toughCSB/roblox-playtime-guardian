@@ -12,7 +12,7 @@ import {
 } from './fileStore'
 import { grantAdminSession, requireAdminSession } from './adminAuth'
 import { redactSettings } from '../shared/policy'
-import { isDailyUsageExhausted, normalizeDailyUsage } from '../shared/dailyUsage'
+import { isDailyUsageExhausted, normalizeDailyUsage, shouldPersistNormalizedDailyUsage } from '../shared/dailyUsage'
 import type { DailyRemaining, PublicSettings } from '../shared/types'
 
 const MAX_PIN_ATTEMPTS = 5
@@ -123,13 +123,12 @@ export function registerIpcHandlers(callbacks: { approveNextSession?: () => bool
       sessions: readSessions(),
       dateKey: today,
     })
-    if (
-      !storedUsage ||
-      storedUsage.date !== usage.date ||
-      storedUsage.sessionsCompleted !== usage.sessionsCompleted ||
-      storedUsage.currentSessionRemainingMs !== usage.currentSessionRemainingMs
-    ) {
-      writeDailyUsage(usage)
+    if (shouldPersistNormalizedDailyUsage(storedUsage, usage)) {
+      try {
+        writeDailyUsage(usage)
+      } catch (err) {
+        console.error('daily-usage normalization write failed; returning recovered usage', err)
+      }
     }
     const settings = readSettings()
     const dow = new Date().getDay()
