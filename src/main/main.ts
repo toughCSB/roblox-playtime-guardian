@@ -6,13 +6,14 @@ import { registerIpcHandlers } from './ipc'
 import { requireAdminSession } from './adminAuth'
 import {
   readSettings, writeTimerState, clearTimerState, readTimerState,
-  readDailyUsage, writeDailyUsage, appendSession,
+  readDailyUsage, writeDailyUsage, appendSession, readSessions,
 } from './fileStore'
 import { isHourAllowed } from '../shared/policy'
 import { shouldRequireApprovalForStart } from '../shared/startPolicy'
 import { shouldBlockTimerStartWithoutRoblox, shouldPauseTimerWhenRobloxMissing } from '../shared/robloxSync'
 import { normalizeTimerAdjustmentMinutes } from '../shared/timerAdjust'
-import { decideStartupWindowAction } from '../shared/startupVisibility'
+import { decideStartupWindowAction, shouldStartHiddenFromLaunch } from '../shared/startupVisibility'
+import { isDailyUsageExhausted, normalizeDailyUsage } from '../shared/dailyUsage'
 import type { DailyUsage, Session, TimerState } from '../shared/types'
 
 // Packaged app must run once per Windows user/session. Electron's single instance
@@ -51,19 +52,38 @@ const PENDING_APPROVAL_LAUNCH_TTL_MS = 2 * 60 * 1000
 
 let timerDisplay: Electron.Display | null = null
 let volatileDailyUsage: DailyUsage | null = null
-const startHidden = process.argv.includes('--start-hidden')
+const startHidden = shouldStartHiddenFromLaunch({ argv: process.argv, isPackaged: app.isPackaged })
 let robloxBaselineCaptured = false
 let parentApprovalGrantedForNextSession = false
 const COMMON_APP_DATA_DIR = process.platform === 'win32' ? 'C:\\ProgramData' : app.getPath('userData')
 const WATCHDOG_DISABLED_PATH = join(COMMON_APP_DATA_DIR, 'MyPact', 'Admin', 'watchdog-disabled.flag')
 const FALLBACK_TRAY_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB6ElEQVR4nI2SQUgUYRTHX0TdI9jd2R0NPARRLCYliLDe1Et2iDCo9KQiwSJ0CDYFPdimwmIYKOwcEiMS6RLoJaKCiKFZamfDgohaRGgCq6MwY/7j/+3OsO1uWw+Gx/f+v//73nzfJ9IgHNG/OaKDuRFXE6aEEjkJXy2b/e/I/5oPmBJyTQnhk0S/b4vubkmMkyw6onf8s4Ej+rwlYbw6HEP+8ihujaaQH7iG59op5CXCSeYbmY2XEsLGzduYnMyAMTKSUtkwVlWdOrl65iuvJYziXQM7Oz8QjcaRTt+BH5ZVUJk6OfJ/NPgiMftF90Ukk1PwvD309PSjpeUsKoN16uTIV+6u2aJhK7sSwK7rorm5DclzA6gOcuTp8xu0c6zU9WksLz8KwIUzvdh9+BjTxzuDGnVy5d9o9xu05iSC9aUVFIvbAfxz/SnsC0PoO3oCTU2nkc3eVzq5XOlGWv0Gh96L9uvj1BxM823NyOPjaXUeY2MTSidHnr7gHL6K/uDJsTbMzSzVNKgM6uTIV19jfFM0vLk0BM/zkMkYymDbH1TmmnXqm6UDjNd7C4MF0bCROA/r3iqwv4/h4ZTKXLNeKJkHG73G7s8SfWdJBM8Oalg7mVCZa9ap/9Vc1ajLEf2GI/psOXfV434Du+O1a17Rx5AAAAAASUVORK5CYII='
 
-function getDailyUsage(): DailyUsage | null {
-  if (volatileDailyUsage) {
-    if (volatileDailyUsage.date === getLocalDateString()) return volatileDailyUsage
+function getDailyUsage(): DailyUsage {
+  const today = getLocalDateString()
+  const storedUsage = volatileDailyUsage?.date === today ? volatileDailyUsage : readDailyUsage()
+  if (volatileDailyUsage?.date !== today) {
     volatileDailyUsage = null
   }
-  return readDailyUsage()
+  const usage = normalizeDailyUsage({
+    storedUsage,
+    sessions: readSessions(),
+    dateKey: today,
+  })
+  volatileDailyUsage = usage
+  if (
+    !storedUsage ||
+    storedUsage.date !== usage.date ||
+    storedUsage.sessionsCompleted !== usage.sessionsCompleted ||
+    storedUsage.currentSessionRemainingMs !== usage.currentSessionRemainingMs
+  ) {
+    try {
+      writeDailyUsage(usage)
+    } catch (err) {
+      console.error('daily-usage normalization write failed; continuing enforcement in memory', err)
+    }
+  }
+  return usage
 }
 
 function safeWriteTimerState(state: TimerState): void {
@@ -261,9 +281,8 @@ function getTodaySessionCount(): { sessionsPerDay: number; perSessionMinutes: nu
 
 function isSessionExhausted(today: string): boolean {
   const usage = getDailyUsage()
-  if (!usage || usage.date !== today) return false
   const { sessionsPerDay } = getTodaySessionCount()
-  return usage.sessionsCompleted >= sessionsPerDay && usage.currentSessionRemainingMs <= 0
+  return usage.date === today && isDailyUsageExhausted(usage, sessionsPerDay)
 }
 
 function pauseTimerInternals(): void {

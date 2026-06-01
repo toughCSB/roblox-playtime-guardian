@@ -2,7 +2,7 @@
 
 > **자녀의 로블록스 게임 시간을 부모가 설정하고, 자녀 스스로 서약을 지키도록 돕는 Electron 데스크탑 타이머 앱**
 
-[![Version](https://img.shields.io/badge/version-0.60.0-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
+[![Version](https://img.shields.io/badge/version-0.60.5-blue)](#) [![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey)](#) [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
 ---
 
@@ -168,6 +168,15 @@ DSEG7 전자시계 폰트 + 잔여 시간에 따른 색상 변화:
 
 ---
 
+### ✅ v0.60.5 핫픽스 요약
+부팅 자동 실행과 당일 세션 소진 복구 문제를 정리한 핫픽스입니다.
+
+- 패키징된 앱이 플래그 없이 실행되어도 기본적으로 메인 화면을 띄우지 않고 시스템 트레이에만 남도록 시작 정책을 보강했습니다.
+- watchdog/자동실행 플래그가 누락된 기존 설치 환경에서도 부팅 직후 메인 화면이 뜨는 경로를 줄였습니다.
+- `daily-usage.json`이 없거나 오래된 상태여도 `sessions.json` 완료 기록을 함께 사용해 당일 완료 횟수를 복구합니다.
+- 평일 60분 × 2회처럼 하루 세션을 모두 사용한 뒤 재부팅해도 3회차 실행이 가능해질 수 있는 경로를 차단했습니다.
+- GitHub Actions Windows 빌드 워크플로우를 제거하고, 릴리즈 설치 파일은 로컬 검증 후 GitHub Release에 직접 첨부합니다.
+
 ### ✅ v0.60.0 안정화 요약
 최초 코드리뷰에서 지적했던 핵심 런타임 우회 경로와 이후 실기기 테스트에서 발견된 시작/트레이 문제를 정리한 안정화 릴리즈입니다.
 
@@ -300,9 +309,9 @@ npm run package:win
 최종 검증 설치본:
 
 ```text
-GitHub Release `v0.60.0`: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.0
-My.Pact.Setup.0.60.0.exe
-SHA256: 680e7051c1f9be6dd8dd48eb1d06e970ab36abadff9b7d44cd14a19d45d24d48
+GitHub Release `v0.60.5`: https://github.com/toughCSB/roblox-playtime-guardian/releases/tag/v0.60.5
+My Pact Setup 0.60.5.exe
+SHA256: 17177D9178E1039C0176AB4EDF99FD20DA561C33CAE6725D3E7526307C9EF501
 ```
 
 Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신뢰된 코드 서명 인증서로 서명해야 합니다. 인증서 환경변수(`CSC_LINK`, `CSC_KEY_PASSWORD` 등)와 symlink 생성 권한이 있는 릴리즈 환경에서는 `npm run package:win:signed`를 사용하세요. 일반 개발/내부 테스트용 재설치 파일은 `npm run package:win`으로 생성합니다.
@@ -313,6 +322,7 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
+| **v0.60.5** | 2026-06-01 | 부팅 자동실행 숨김 시작 보강, 재부팅 후 당일 세션 완료 횟수 복구, GitHub Actions 워크플로우 제거 |
 | **v0.60.0** | 2026-05-31 | Roblox 감지/타이머 동기화, 부모 승인 후 재실행, 트레이/자동실행/수동 실행 안정화, 최초 리뷰 후속 과제 정리 |
 | **v0.50.1** | 2026-05-31 | 관리자 비밀번호 변경 실패 수정, 보호된 PIN 파일 갱신 시 UAC 승격 경로 보강 |
 | **v0.50.0** | 2026-05-31 | ProgramData 저장소/관리자 세션 하드닝, watchdog 자동 재실행, Roblox 오탐 방지, 최소화 버튼 수정, 관리자 시간 추가/차감/직접입력, watchdog 재시작 시 Roblox 미실행 타이머 자동진행 방지 |
@@ -336,6 +346,7 @@ Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신�
 - [x] **v0.50.0** — 설치/자동실행 안정화, watchdog 복구, 관리자 시간 조정, 보안 하드닝, 최소화/복원 버그 수정
 - [x] **v0.50.1** — 관리자 비밀번호 변경 hotfix
 - [x] **v0.60.0** — Roblox enforcement/승인/트레이/자동실행 안정화 릴리즈
+- [x] **v0.60.5** — 부팅 자동실행 숨김 시작과 재부팅 후 세션 완료 횟수 복구 hotfix
 - [ ] **v0.70.0** — 요일별 개별 시간 설정, 플레이 기록 화면
 - [ ] **v1.0.0** — 웹 대시보드 연동 (주간/월간 그래프)
 
