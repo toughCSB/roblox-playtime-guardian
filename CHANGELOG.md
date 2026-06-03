@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### 문서
+- GitHub Release Windows 설치 파일이 unsigned 상태임을 README 상단과 설치 안내 문서에 명확히 표시했습니다.
+- SmartScreen/Smart App Control 경고가 뜰 때 `추가 정보 -> 실행`, 파일 속성의 `차단 해제`, `Unblock-File`로 설치하는 방법을 정리했습니다.
+
 ### 보안/배포
 - 정식 Windows 배포 명령(`npm run package:win`)이 코드서명 설정 없이는 실패하도록 변경했습니다.
 - PFX/CSC 인증서 또는 Azure Trusted Signing 환경변수를 감지해 electron-builder 서명 빌드를 실행하는 설정 파일을 추가했습니다.

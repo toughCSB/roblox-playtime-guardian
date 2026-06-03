@@ -6,6 +6,22 @@
 
 ---
 
+## ⚠️ Windows 설치 전 꼭 읽어주세요
+
+현재 GitHub Release의 Windows 설치 파일은 **코드 서명(Code Signing) 인증서가 적용되지 않은 unsigned 설치본**입니다. Windows Defender SmartScreen 또는 Smart App Control이 "인식되지 않는 앱"으로 판단해 설치/실행을 막을 수 있습니다.
+
+이 경우 아래 방법으로 설치할 수 있습니다.
+
+1. 설치 파일 실행 후 `Windows에서 PC를 보호했습니다` 화면이 나오면 `추가 정보`를 클릭합니다.
+2. `실행` 버튼을 클릭하면 설치가 계속 진행됩니다.
+3. 다운로드 파일 자체가 차단된 경우 파일 우클릭 → `속성` → `차단 해제` 체크 후 다시 실행합니다.
+
+자세한 안내는 [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)를 확인하세요.
+
+> 공개 CA 코드 서명 인증서 또는 Microsoft Store 배포를 사용하면 이런 경고를 줄일 수 있지만, 현재 릴리즈는 개인/소규모 프로젝트 기준의 무료 배포 방식으로 제공됩니다.
+
+---
+
 ## 앱 이름: My Pact
 
 > *"나 자신과의 서약, 내 미래를 위해"*
@@ -310,16 +326,16 @@ npm run dev
 > **빌드 전 반드시 확인 후 진행**  
 > 기존 설치본 또는 이전 `dist\win-unpacked` 앱이 실행 중이면 `app.asar` 잠금으로 패키징 삭제 단계가 실패할 수 있습니다. 먼저 실행 중인 `My Pact` / 구버전 `My Pact for My Future` 프로세스를 종료하거나 제거하세요.
 
-정식 배포 설치본은 반드시 코드서명 인증서가 설정된 상태에서 생성해야 합니다.
-
-```bash
-npm run package:win
-```
-
-로컬 내부 테스트용 unsigned 설치본만 필요할 때는 아래 명령을 사용합니다.
+GitHub Release에 올리는 unsigned 설치본을 만들 때는 아래 명령을 사용합니다.
 
 ```bash
 npm run package:win:unsigned
+```
+
+코드 서명 인증서가 준비된 정식 signed 설치본은 아래 명령으로 생성합니다. 인증서 설정이 없으면 실패합니다.
+
+```bash
+npm run package:win
 ```
 
 빌드 결과물: `dist/` (`.exe` NSIS 인스톨러)
@@ -331,6 +347,8 @@ GitHub Release `v0.60.6`: https://github.com/toughCSB/roblox-playtime-guardian/r
 My Pact Setup 0.60.6.exe
 SHA256: 61BA370504B780396BA0C277E48782D8418FB1117FA9F9CA4A96880ADA1AD0C5
 ```
+
+> `v0.60.6` 설치본은 unsigned 파일입니다. Windows SmartScreen 경고가 표시될 수 있으며, 설치 방법은 [Windows 설치 안내](./WINDOWS_INSTALL.md)를 참고하세요.
 
 Windows 11 SmartScreen/Smart App Control에서 차단될 가능성을 줄이려면 신뢰된 코드서명 인증서로 앱과 설치본을 서명해야 합니다. `npm run package:win`은 서명 설정이 없으면 실패하며, `scripts/verify-win-signature.mjs`가 설치본과 `My Pact.exe`의 Authenticode 서명이 `Valid`인지 확인합니다.
 
