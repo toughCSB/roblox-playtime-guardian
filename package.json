@@ -8,8 +8,10 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "package:win": "electron-vite build && electron-builder --win --x64 --config.win.signAndEditExecutable=false",
-    "package:win:signed": "electron-vite build && electron-builder --win --x64",
+    "package:win": "npm run package:win:signed",
+    "package:win:unsigned": "electron-vite build && electron-builder --win --x64 --config.win.signAndEditExecutable=false --config.win.forceCodeSigning=false",
+    "package:win:signed": "node scripts/ensure-win-signing-configured.mjs && electron-vite build && electron-builder --win --x64 --config electron-builder.config.cjs && node scripts/verify-win-signature.mjs",
+    "verify:win-signature": "node scripts/verify-win-signature.mjs",
     "package:mac": "electron-vite build && electron-builder --mac"
   },
   "build": {

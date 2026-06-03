@@ -310,8 +310,16 @@ npm run dev
 > **빌드 전 반드시 확인 후 진행**  
 > 기존 설치본 또는 이전 `dist\win-unpacked` 앱이 실행 중이면 `app.asar` 잠금으로 패키징 삭제 단계가 실패할 수 있습니다. 먼저 실행 중인 `My Pact` / 구버전 `My Pact for My Future` 프로세스를 종료하거나 제거하세요.
 
+정식 배포 설치본은 반드시 코드서명 인증서가 설정된 상태에서 생성해야 합니다.
+
 ```bash
 npm run package:win
+```
+
+로컬 내부 테스트용 unsigned 설치본만 필요할 때는 아래 명령을 사용합니다.
+
+```bash
+npm run package:win:unsigned
 ```
 
 빌드 결과물: `dist/` (`.exe` NSIS 인스톨러)
@@ -324,7 +332,28 @@ My Pact Setup 0.60.6.exe
 SHA256: 61BA370504B780396BA0C277E48782D8418FB1117FA9F9CA4A96880ADA1AD0C5
 ```
 
-Windows 11 Smart App Control에서 차단되지 않는 정식 배포본은 신뢰된 코드 서명 인증서로 서명해야 합니다. 인증서 환경변수(`CSC_LINK`, `CSC_KEY_PASSWORD` 등)와 symlink 생성 권한이 있는 릴리즈 환경에서는 `npm run package:win:signed`를 사용하세요. 일반 개발/내부 테스트용 재설치 파일은 `npm run package:win`으로 생성합니다.
+Windows 11 SmartScreen/Smart App Control에서 차단될 가능성을 줄이려면 신뢰된 코드서명 인증서로 앱과 설치본을 서명해야 합니다. `npm run package:win`은 서명 설정이 없으면 실패하며, `scripts/verify-win-signature.mjs`가 설치본과 `My Pact.exe`의 Authenticode 서명이 `Valid`인지 확인합니다.
+
+지원하는 서명 방식:
+
+```powershell
+# PFX/CSC 인증서
+$env:WIN_CSC_LINK = "C:\secure\certificate.pfx"
+$env:WIN_CSC_KEY_PASSWORD = "..."
+npm run package:win
+```
+
+```powershell
+# Azure Trusted Signing
+$env:AZURE_TRUSTED_SIGNING_ENDPOINT = "https://..."
+$env:AZURE_TRUSTED_SIGNING_ACCOUNT_NAME = "..."
+$env:AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME = "..."
+$env:AZURE_TRUSTED_SIGNING_PUBLISHER_NAME = "..."
+$env:AZURE_TENANT_ID = "..."
+$env:AZURE_CLIENT_ID = "..."
+$env:AZURE_CLIENT_SECRET = "..."
+npm run package:win
+```
 
 ---
 

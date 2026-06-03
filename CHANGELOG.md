@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 보안/배포
+- 정식 Windows 배포 명령(`npm run package:win`)이 코드서명 설정 없이는 실패하도록 변경했습니다.
+- PFX/CSC 인증서 또는 Azure Trusted Signing 환경변수를 감지해 electron-builder 서명 빌드를 실행하는 설정 파일을 추가했습니다.
+- 설치본과 `win-unpacked` 실행 파일의 Authenticode 서명이 `Valid`인지 확인하는 검증 스크립트를 추가했습니다.
+- 내부 테스트용 unsigned 빌드는 `npm run package:win:unsigned`로 분리했습니다.
+
 ---
 
 ## [0.60.6] — 2026-06-02
